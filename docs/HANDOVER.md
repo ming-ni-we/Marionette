@@ -213,6 +213,7 @@ marionette/
 | `1ef5d36` | 项目初始化（Phase 1–3 产出） |
 | `cab4617` | 添加 `.gitattributes` 统一换行符 |
 | `98d718a` | Phase 3 第一波 —— 创作侧实现 |
+| `be693ad` | 修复 4 类缺陷（集成测试隔离失效 / 导出中文名 500 / `source_format` 契约 / 条目 id 类型） |
 
 ---
 
