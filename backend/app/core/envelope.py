@@ -15,6 +15,11 @@ def success(data: Any = None, message: str = "") -> dict[str, Any]:
     return {"code": 0, "data": data, "message": message}
 
 
+def deleted(obj_id: Any) -> dict[str, Any]:
+    """删除类端点的统一 data 体：{id, deleted}。"""
+    return {"id": str(obj_id), "deleted": True}
+
+
 def failure(
     code: int,
     message: str,

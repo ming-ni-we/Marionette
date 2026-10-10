@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Annotated, Literal
 
 from fastapi import Depends, Query, Request
@@ -15,11 +16,27 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.adapters.registry import get_auth_provider
 from app.core.config import get_settings
-from app.core.db import get_session
+from app.core.db import SessionLocal
 from app.core.errors import AuthFailedError
 from app.core.security import Principal
+from app.services.search import ListQuery
 
-DbSession = Annotated[AsyncSession, Depends(get_session)]
+
+async def db_session() -> AsyncIterator[AsyncSession]:
+    """请求级数据库会话，**成功即提交、异常即回滚**（事务边界收口在依赖层）。
+
+    这样 service 只管编排，不必各自 commit，也不会因漏 commit 而"写了个寂寞"。
+    """
+    async with SessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+
+
+DbSession = Annotated[AsyncSession, Depends(db_session)]
 
 # ---------------- 统一检索/分页参数别名（对齐 openapi components.parameters） ----------------
 SortField = Literal["created_at", "updated_at", "name", "last_message_at"]
@@ -40,6 +57,26 @@ SessionIdQueryParam = Annotated[str | None, Query(description="按归属会话�
 AssetKindParam = Annotated[AssetKindField | None, Query(description="资产类型过滤")]
 PageParam = Annotated[int, Query(ge=1, description="页码，从 1 开始")]
 LimitParam = Annotated[int, Query(ge=1, le=100, description="每页条数，1–100")]
+
+
+def to_list_query(
+    *,
+    q: str | None = None,
+    tags: list[str] | None = None,
+    sort: str = "updated_at",
+    order: str = "desc",
+    page: int = 1,
+    limit: int = 20,
+) -> ListQuery:
+    """把路由层的查询参数收口成统一检索入参（schemas.md §9）。"""
+    return ListQuery(
+        q=q,
+        tags=tuple(tags or ()),
+        sort=sort,  # type: ignore[arg-type]
+        order=order,  # type: ignore[arg-type]
+        page=page,
+        limit=limit,
+    )
 
 
 def client_key(request: Request) -> str:

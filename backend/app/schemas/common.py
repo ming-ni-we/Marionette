@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Generic, TypeVar
-
 from pydantic import BaseModel, ConfigDict, Field
 
-T = TypeVar("T")
 
-
-class Envelope(BaseModel, Generic[T]):
+class Envelope[T](BaseModel):
     """统一响应信封：code=0 成功，非 0 为错误码。"""
 
     model_config = ConfigDict(extra="allow")
@@ -29,7 +25,7 @@ class ErrorEnvelope(BaseModel):
     model_seen: str | None = None
 
 
-class Paged(BaseModel, Generic[T]):
+class Paged[T](BaseModel):
     model_config = ConfigDict(extra="allow")
 
     total: int = 0

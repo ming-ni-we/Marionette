@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from app.adapters.asset_store import LocalAssetStore
 from app.adapters.auth import PasswordAuthProvider
 from app.adapters.base import (
     AssetStore,
@@ -19,7 +20,6 @@ from app.adapters.base import (
 from app.adapters.image import CloudImageProvider, LocalComfyUIProvider
 from app.adapters.llm import OpenAICompatibleLLMProvider
 from app.adapters.moderation import BuiltinWordlistModerationProvider
-from app.adapters.asset_store import LocalAssetStore
 from app.core.config import get_settings
 from app.core.security import AccessControl
 

@@ -12,7 +12,6 @@ from app.api.v1 import (
     assets,
     auth,
     cards,
-    config as config_routes,
     images,
     import_export,
     onboarding,
@@ -21,6 +20,9 @@ from app.api.v1 import (
     system,
     telemetry,
     worldbooks,
+)
+from app.api.v1 import (
+    config as config_routes,
 )
 from app.api.v1.deps import require_auth
 

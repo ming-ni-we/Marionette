@@ -10,11 +10,11 @@ from datetime import UTC, datetime, timedelta
 from fastapi import APIRouter, Request, Response
 
 from app.adapters.registry import get_access_control, get_auth_provider
+from app.api.v1.deps import client_key
 from app.core.config import get_settings
 from app.core.errors import AuthFailedError, RateLimitedError
 from app.schemas.auth import LoginRequest, LoginResponse, SessionStatusResponse
 from app.schemas.common import Envelope
-from app.api.v1.deps import client_key
 
 router = APIRouter(tags=["Auth"])
 

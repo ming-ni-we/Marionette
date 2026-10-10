@@ -18,10 +18,10 @@ error_class 契约见 openapi.yaml components.schemas.ConnectionTestResult 与 S
 
 from __future__ import annotations
 
-from enum import Enum
+from enum import StrEnum
 
 
-class ErrorClass(str, Enum):
+class ErrorClass(StrEnum):
     """七类错误分类 —— 对外契约，不得增删。"""
 
     model_not_found = "model_not_found"

@@ -11,6 +11,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+
 # --------------------------------------------------------------------------- #
 # 角色卡
 # --------------------------------------------------------------------------- #
@@ -199,6 +200,15 @@ class WorldBookTestRequest(BaseModel):
 
 
 class WorldBookTestEntryResult(BaseModel):
+    """逐条裁决结果（openapi WorldBookTestResult.entries + 平台补充字段）。
+
+    契约外补充（非文档，服务端可见即可）：
+      - `priority`  / `insertion_order`：预算裁决依据，便于用户理解"为何这条被挤出"
+      - `enabled`：条目被禁用时明确告知，而非表现为"没命中"
+    """
+
+    model_config = ConfigDict(extra="allow")
+
     entry_id: str
     comment: str = ""
     matched: bool = False
@@ -207,9 +217,18 @@ class WorldBookTestEntryResult(BaseModel):
     in_budget: bool = False
     token_count: int = 0
     final_position: str | None = None
+    # --- 平台补充字段 ---
+    priority: int = 10
+    insertion_order: int = 100
+    enabled: bool = True
 
 
 class WorldBookTestResult(BaseModel):
     entries: list[WorldBookTestEntryResult] = Field(default_factory=list)
     total_tokens: int = 0
     token_budget: int = 1024
+    # --- 平台补充：三态可区分的汇总，便于前端直接展示 ---
+    matched_count: int = 0
+    in_budget_count: int = 0
+    evicted_count: int = 0
+    scan_depth: int = 4

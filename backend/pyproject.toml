@@ -22,6 +22,8 @@ dependencies = [
     "httpx>=0.27,<0.29",
     "itsdangerous>=2.2,<3",
     "python-multipart>=0.0.9",
+    # PNG/WEBP 角色卡读写 tEXt chunk（SillyTavern V2/V3 兼容，schemas.md §3.4）
+    "pillow>=10.4,<12",
 ]
 
 [project.optional-dependencies]

@@ -20,10 +20,12 @@ from app.schemas.session import (
     Message,
     MessageInput,
     RegenerateRequest,
-    Session as SessionSchema,
     SessionCreateRequest,
     SessionUpdateRequest,
     StreamRequest,
+)
+from app.schemas.session import (
+    Session as SessionSchema,
 )
 
 _SSE_RESPONSES = {
