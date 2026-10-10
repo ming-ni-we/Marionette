@@ -3,8 +3,18 @@
 **隔离策略**：本次运行创建一个独立的临时 schema，引擎的 `search_path` 指向它，
 结束时 `DROP SCHEMA ... CASCADE`。绝不触碰生产 schema 的表。
 
-> 说明：tests 内在**临时 schema** 里用 `Base.metadata.create_all` 建表；
-> 生产建表依旧只走 Alembic（铁律不变）。这样测试既不污染生产库，也不依赖迁移执行顺序。
+> 说明：tests 内在**临时 schema** 里建表；生产建表依旧只走 Alembic（铁律不变）。
+> 这样测试既不污染生产库，也不依赖迁移执行顺序。
+
+**为何不能直接用 `Base.metadata.create_all`（默认 `checkfirst=True`）**：
+`search_path` 里保留了 `public` 兜底（`vector`/`pg_trgm` 的类型与操作符装在那里，
+去掉会报 `type vector does not exist`）。而 `checkfirst=True` 依赖
+PostgreSQL 的 `pg_table_is_visible()` 判断"表是否已存在"——`public.cards` 对本会话
+"可见"，于是 SQLAlchemy 误判表已存在、**整段 CREATE TABLE 被跳过**，临时 schema 空无一表，
+查询随后按 `search_path` 回落 `public`，把测试数据写进生产库。
+因此这里改为把表**显式复制到临时 schema**（`Table.to_metadata(..., schema=...)`）再建，
+表名带 schema 前缀后 `checkfirst` 只查目标 schema，不再受 `public` 干扰；
+外加两道硬守卫（见 `pg_schema`），隔离一旦失效就立刻响亮退出，绝不放行。
 
 运行方式（api 容器内）：
     docker compose exec -e MARIONETTE_INTEGRATION=1 -e ASSETS_DIR=/tmp/mtest-assets \\
@@ -24,7 +34,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
+from sqlalchemy import MetaData, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
@@ -59,18 +69,54 @@ def pg_schema() -> Any:
     from app.models.base import Base
 
     schema = f"mtest_{uuid.uuid4().hex[:10]}"
+    expected_tables = len(Base.metadata.tables)
 
     async def _setup() -> None:
         admin = _admin_engine()
         async with admin.begin() as conn:
             await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
         await admin.dispose()
+
         engine = _mk_engine(schema)
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            # 把全部表复制到临时 schema 后建表：表名带 schema 前缀，checkfirst 只查目标 schema，
+            # 不会被 search_path 里的 public 兜底误判为"已存在"（详见文件顶部 docstring）。
+            # 必须传 sorted_tables 全量复制，否则指向未复制表的外键会报错。
+            target = MetaData()
+            for table in Base.metadata.sorted_tables:
+                table.to_metadata(target, schema=schema)
+            await conn.run_sync(target.create_all)
+
+            current = (await conn.execute(text("select current_schema()"))).scalar_one()
+            created = (
+                await conn.execute(
+                    text(
+                        "select count(*) from information_schema.tables "
+                        "where table_schema = :s"
+                    ),
+                    {"s": schema},
+                )
+            ).scalar_one()
         await engine.dispose()
 
+        # 硬守卫：隔离失效就立刻响亮退出，绝不放行（否则测试数据会写进生产库 public）。
+        if current != schema or created != expected_tables:
+            admin = _admin_engine()
+            async with admin.begin() as conn:
+                await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+            await admin.dispose()
+            pytest.exit(
+                "集成测试 schema 隔离失效："
+                f"current_schema()={current!r}（期望 {schema!r}）；"
+                f"临时 schema 表数={created}（期望 {expected_tables}）。"
+                "隔离已失效——继续运行会把测试数据写进生产库 public，已中止。",
+                returncode=2,
+            )
+
     async def _teardown() -> None:
+        # 保险：只允许 drop 我们自建的临时 schema，杜绝误删意料之外的 schema。
+        if not schema.startswith(("mtest_", "probe_")):
+            raise RuntimeError(f"拒绝 DROP 非测试 schema：{schema!r}")
         admin = _admin_engine()
         async with admin.begin() as conn:
             await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))

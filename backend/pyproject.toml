@@ -48,6 +48,12 @@ target-version = "py312"
 select = ["E", "F", "I", "UP", "B"]
 ignore = ["E501"]
 
+[tool.ruff.lint.isort]
+# backend/ 下有同名 alembic/ 目录，ruff 会因此把 alembic 误判为一等包，
+# 进而要求 `from alembic import context` 排在 sqlalchemy 之后（与 PEP8 分组相反）。
+# 显式声明它属于三方包，才能在不改动 alembic/ 源码的前提下让 I001 通过。
+known-third-party = ["alembic"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]

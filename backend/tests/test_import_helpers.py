@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
+from typing import get_args
+
 import pytest
 
 from app.core.errors import BadRequestError
+from app.schemas.import_export import ImportResult
 from app.services.wb_import import worldbook_data_from_payload as _worldbook_data_from_payload
 
 
@@ -54,3 +58,21 @@ def test_missing_entries_raises_bad_request() -> None:
     with pytest.raises(BadRequestError) as err:
         _worldbook_data_from_payload({"name": "一本书但没有条目"})
     assert "entries" in str(err.value)
+
+
+def test_import_result_accepts_st_worldbook() -> None:
+    """契约补齐：ImportResult.source_format 必须接受 st_worldbook（世界书导入）。"""
+    result = ImportResult(source_format="st_worldbook", object_id=uuid.uuid4())
+    assert result.source_format == "st_worldbook"
+
+
+def test_wb_import_source_format_matches_contract_enum() -> None:
+    """防止再次漂移：wb_import 返回的 source_format 必须落在 ImportResult 枚举内。"""
+    allowed = set(get_args(ImportResult.model_fields["source_format"].annotation))
+    _, st_source = _worldbook_data_from_payload({"entries": [{"keys": ["a"], "content": "x"}]})
+    _, native_source = _worldbook_data_from_payload(
+        {"spec": "rpg_worldbook", "data": {"name": "x", "entries": []}}
+    )
+    assert st_source in allowed
+    assert native_source in allowed
+    assert st_source == "st_worldbook"

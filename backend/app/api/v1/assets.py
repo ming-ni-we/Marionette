@@ -22,6 +22,7 @@ from app.api.v1.deps import (
     to_list_query,
 )
 from app.core.envelope import deleted
+from app.core.text import content_disposition
 from app.schemas.asset import Asset
 from app.schemas.common import Envelope, Paged
 from app.services.assets import AssetSvc
@@ -94,7 +95,7 @@ async def get_asset_content(db: DbSession, assetId: str) -> Response:
     return Response(
         content=data,
         media_type=content_type,
-        headers={"Content-Disposition": f'inline; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename, disposition="inline")},
     )
 
 

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class ImportResult(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    source_format: Literal["st_v1", "st_v2", "st_v3", "native"] = "native"
+    source_format: Literal["st_v1", "st_v2", "st_v3", "st_worldbook", "native"] = "native"
     object_id: UUID
     warnings: list[str] = Field(default_factory=list)
     preserved_unknown_keys: list[str] = Field(default_factory=list)

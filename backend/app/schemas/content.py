@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class WorldBookEntry(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    id: UUID | None = None
+    id: str | None = None
     keys: list[str] = Field(default_factory=list)
     secondary_keys: list[str] = Field(default_factory=list)
     content: str = ""

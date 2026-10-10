@@ -1659,7 +1659,7 @@ components:
       type: object
       required: [keys, content, enabled]
       properties:
-        id: { type: string, format: uuid }
+        id: { type: string }
         keys:
           type: array
           items: { type: string }
@@ -2040,7 +2040,7 @@ components:
     ImportResult:
       type: object
       properties:
-        source_format: { type: string, enum: [st_v1, st_v2, st_v3, native] }
+        source_format: { type: string, enum: [st_v1, st_v2, st_v3, st_worldbook, native] }
         object_id: { type: string, format: uuid }
         warnings:
           type: array

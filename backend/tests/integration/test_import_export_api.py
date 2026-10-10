@@ -104,7 +104,10 @@ def test_export_png_is_reimportable(
     )
     assert reimported.status_code == 201, reimported.text
     again = client.get(f"/api/v1/cards/{reimported.json()['data']['object_id']}").json()["data"]
-    assert again["data"]["name"] == "PNG导出角色"
+    # on_conflict=rename 的既定语义：与既有同名卡冲突时追加「(导入副本)」
+    # （见 ImportExportSvc._renamed）。所以名字不能再断言"原样不变"，
+    # 这里要验证的是**卡片正文无损**：除名字外字段逐字段等价。
+    assert again["data"]["name"] == "PNG导出角色 (导入副本)"
     assert again["data"]["description"] == card["data"]["description"]
 
 

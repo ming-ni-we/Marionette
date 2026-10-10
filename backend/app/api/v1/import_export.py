@@ -9,6 +9,7 @@ from fastapi.responses import Response
 
 from app.api.v1.deps import DbSession
 from app.core.errors import BadRequestError
+from app.core.text import content_disposition
 from app.schemas.common import Envelope
 from app.schemas.import_export import ExportBundleRequest, ImportResult
 from app.services.import_export import ImportExportSvc
@@ -70,7 +71,7 @@ async def export_bundle(db: DbSession, payload: ExportBundleRequest) -> Response
     return Response(
         content=blob,
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="marionette-bundle.zip"'},
+        headers={"Content-Disposition": content_disposition("marionette-bundle.zip")},
     )
 
 
@@ -89,5 +90,5 @@ async def export_card(db: DbSession, cardId: str, format: str = "json") -> Respo
     return Response(
         content=blob,
         media_type=media_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={"Content-Disposition": content_disposition(filename)},
     )

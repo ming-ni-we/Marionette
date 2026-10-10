@@ -172,7 +172,7 @@
 
 | 字段 | 类型 | 必填 | 默认 | 说明 | ST 对应 |
 |---|---|---|---|---|---|
-| `id` | string(uuid) | 是 | 生成 | 条目 id | `id`(int) / `uid` |
+| `id` | string | 是 | 生成 | 条目 id。平台创建时生成 UUID 字符串；导入/调用方可传入自定义 id（ST 的 int id 会以 `extensions.st_original_id` 保真，见 `st_book.py`） | `id`(int) / `uid` |
 | `keys` | string[] | 是 | `[]` | 主关键词 | `keys` / `key` |
 | `secondary_keys` | string[] | 否 | `[]` | 次级关键词（`selective` 时需同时命中） | `secondary_keys` |
 | `content` | string | 是 | `""` | 命中后注入的正文 | `content` |
@@ -224,6 +224,19 @@
 - **`order` ↔ `insertion_order`**：同义，统一为 `insertion_order`。
 - **未知字段**：条目级未知键收进该条目的 `extensions`；书级未知键收进书级 `extensions`。
 - **优先级方向差异**：ST 的 `priority`（数字越小越先丢弃）与本 Schema 一致（**大者优先保留**）——导入时若来源用相反语义，转换层需取反，并在 `extensions` 记录 `priority_semantics_original`。
+
+### 4.5 导入结果 `source_format` 枚举
+
+导入接口（`POST /api/v1/import/card`、`POST /api/v1/import/worldbook`）返回的 `ImportResult.source_format`
+用于标注实际解析成功的来源载体，取值与 `openapi.yaml` 的 `ImportResult` 枚举一致：
+
+| 值 | 含义 |
+|---|---|
+| `st_v1` | SillyTavern 角色卡 V1（裸 6 字段 JSON） |
+| `st_v2` | SillyTavern 角色卡 V2（`chara_card_v2` / PNG `chara` chunk） |
+| `st_v3` | SillyTavern 角色卡 V3（PNG `ccv3` chunk） |
+| `st_worldbook` | **SillyTavern World Info / lorebook JSON**（世界书导入；本轮契约补齐，此前枚举仅为角色卡设计而缺失该值） |
+| `native` | 本平台原生信封（`rpg_card` / `rpg_worldbook`） |
 
 ---
 
