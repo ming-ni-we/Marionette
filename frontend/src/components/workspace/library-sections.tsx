@@ -25,7 +25,9 @@ import {
   Pencil,
 } from '@/components/icons';
 
-const GRID = 'grid grid-cols-1 gap-2.5 lg:grid-cols-2 2xl:grid-cols-3';
+/** 内容卡网格：固定最小列宽 + 自动填充，超宽屏靠 max-width 收敛而非拉伸单列 */
+const GRID =
+  'grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-2.5 max-w-[--container-max]';
 
 /** 空分组提示行（虚线框 + 可执行下一步） */
 export function SectionHint({ children }: { children: React.ReactNode }) {
@@ -89,7 +91,7 @@ export function CardSection({
                     <span className="font-mono tabular-nums">{card.data.first_mes.length} 字开场白</span>
                     <button
                       type="button"
-                      className="ml-auto text-accent hover:underline"
+                      className="ml-auto rounded-xs text-muted motion-fast hover:text-accent focus-visible:text-accent group-hover/card:text-accent group-focus-within/card:text-accent"
                       onClick={() => navigate(`/sessions?card=${card.id}`)}
                     >
                       开会话

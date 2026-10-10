@@ -9,6 +9,7 @@ import { toast } from '@/stores/ui';
 import { PageHeader } from '@/components/common/page-header';
 import { LibraryToolbar } from '@/components/common/library-toolbar';
 import { EmptyState } from '@/components/common/empty-state';
+import { OfflineBanner } from '@/components/common/offline-banner';
 import { NewSessionDialog } from '@/components/session/new-session-dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -100,12 +101,9 @@ export function SessionListPage() {
       />
 
       {offline ? (
-        <div className="border-b border-border-soft bg-warn-subtle px-6 py-2.5">
-          <p className="text-sm leading-relaxed text-fg-2">
-            <span className="font-medium text-warn">后端未连接</span> —— 下面展示的是内置演示会话，
-            可以点进去看运行时的完整交互。
-          </p>
-        </div>
+        <OfflineBanner>
+          下面展示的是内置演示会话，可以点进去看运行时的完整交互。
+        </OfflineBanner>
       ) : null}
 
       <div className="space-y-4 px-6 py-5">

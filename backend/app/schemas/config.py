@@ -47,6 +47,22 @@ class ConnectionTestResult(BaseModel):
     model_seen: str | None = None
 
 
+class ImageConfigInput(BaseModel):
+    """出图后端配置（F12）。api_key 只写不回显（GET 返回 masked）。"""
+
+    model_config = ConfigDict(extra="allow")
+
+    provider: Literal["cloud", "local_comfyui"] = "cloud"
+    base_url: str = ""
+    api_key: str = ""
+    model: str = ""
+
+
+class ImageConfig(ImageConfigInput):
+    active: bool = True
+    updated_at: datetime | None = None
+
+
 class ModerationRules(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -62,6 +78,8 @@ class ModerationConfig(BaseModel):
     check_input: bool = True
     check_output: bool = True
     provider: Literal["builtin_wordlist", "cloud"] = "builtin_wordlist"
+    # 关闭审核层（enabled=false）时必须为 true（风险确认）；仅用于校验，不落库
+    risk_ack: bool = False
     rules: ModerationRules = Field(default_factory=ModerationRules)
     updated_at: datetime | None = None
 

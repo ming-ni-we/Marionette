@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { makeIdempotencyKey } from '@/lib/utils';
-import { sessionsApi, streamChat } from '@/api/client';
+import { regenerateChat, sessionsApi, streamChat } from '@/api/client';
 import type { Message, SessionState, SseEventMap, SseEventName } from '@/api/types';
 import { mockStream } from '@/mocks/fixtures';
 import { toast } from '@/stores/ui';
@@ -28,7 +28,7 @@ export interface ChatStream {
   send: (text: string, narration: string) => void;
   stop: () => void;
   retry: () => void;
-  regenerateWith: (content: string) => void;
+  regenerate: (messageId: string) => void;
 }
 
 /**
@@ -104,7 +104,7 @@ export function useChatStream({ sessionId, offline }: UseChatStreamArgs): ChatSt
   );
 
   const startStream = useCallback(
-    (input: string) => {
+    (input: string, opener?: (cb: Parameters<typeof streamChat>[2]) => { abort: () => void }) => {
       setState('assembling');
       setError(null);
       setMessages((m) => [
@@ -126,19 +126,18 @@ export function useChatStream({ sessionId, offline }: UseChatStreamArgs): ChatSt
         );
         return;
       }
-      handleRef.current = streamChat(
-        sessionId,
-        { input, idempotency_key: makeIdempotencyKey() },
-        {
-          onEvent: onSse,
-          onError: (err) => {
-            setError(err.message);
-            patchLastAssistant({ status: 'incomplete' });
-            setState('error');
-          },
-          onClose: () => setState((s) => (s === 'error' ? s : 'idle')),
+      const callbacks = {
+        onEvent: onSse,
+        onError: (err: { message: string }) => {
+          setError(err.message);
+          patchLastAssistant({ status: 'incomplete' });
+          setState('error');
         },
-      );
+        onClose: () => setState((s) => (s === 'error' ? s : 'idle')),
+      };
+      handleRef.current = opener
+        ? opener(callbacks)
+        : streamChat(sessionId, { input, idempotency_key: makeIdempotencyKey() }, callbacks);
     },
     [sessionId, offline, onSse, patchLastAssistant],
   );
@@ -181,13 +180,12 @@ export function useChatStream({ sessionId, offline }: UseChatStreamArgs): ChatSt
     startStream(lastInput);
   }, [lastInput, startStream]);
 
-  /** 用指定内容重新生成（阅读列里对某条消息点「重新生成」时用） */
-  const regenerateWith = useCallback(
-    (content: string) => {
-      setLastInput(content);
-      startStream(content);
+  /** 对指定消息走契约端点 POST /sessions/{id}/regenerate（缺省为最后一条）。 */
+  const regenerate = useCallback(
+    (messageId: string) => {
+      startStream('', (cb) => regenerateChat(sessionId, { message_id: messageId }, cb));
     },
-    [startStream],
+    [sessionId, startStream],
   );
 
   return {
@@ -207,6 +205,6 @@ export function useChatStream({ sessionId, offline }: UseChatStreamArgs): ChatSt
     send,
     stop,
     retry,
-    regenerateWith,
+    regenerate,
   };
 }

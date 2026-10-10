@@ -19,7 +19,7 @@ export {
   eventsApi,
   type AuthSession,
 } from './resources';
-export { streamChat, type StreamCallbacks } from './stream';
+export { streamChat, regenerateChat, type StreamCallbacks } from './stream';
 
 /* --------------------------------------------------- 便捷构造（新建草稿） */
 

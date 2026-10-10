@@ -9,6 +9,7 @@ import { toast, useUiStore } from '@/stores/ui';
 import { PageHeader } from '@/components/common/page-header';
 import { LibraryToolbar, ActiveTagChips } from '@/components/common/library-toolbar';
 import { EmptyState } from '@/components/common/empty-state';
+import { OfflineBanner } from '@/components/common/offline-banner';
 import { QuickStartPanel } from '@/components/workspace/quick-start-panel';
 import { ContinueStrip, type ContinueItem } from '@/components/workspace/continue-strip';
 import {
@@ -163,16 +164,13 @@ export function WorkspacePage() {
         />
 
         {offline ? (
-          <div className="border-b border-border-soft bg-warn-subtle px-6 py-2.5">
-            <p className="text-sm leading-relaxed text-fg-2">
-              <span className="font-medium text-warn">后端未连接</span> —— 下面是内置演示数据，你可以直接浏览交互。
-              要开始真实使用，去
-              <Link to="/setup" className="mx-1 text-accent underline underline-offset-2">
-                首启向导
-              </Link>
-              接入模型后端。
-            </p>
-          </div>
+          <OfflineBanner>
+            下面是内置演示数据，你可以直接浏览交互。要开始真实使用，去
+            <Link to="/setup" className="mx-1 text-accent underline underline-offset-2">
+              首启向导
+            </Link>
+            接入模型后端。
+          </OfflineBanner>
         ) : null}
 
         <div className="space-y-5 px-6 py-5">

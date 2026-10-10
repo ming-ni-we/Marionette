@@ -8,6 +8,7 @@ import { toast } from '@/stores/ui';
 import { PageHeader, SectionHeading } from '@/components/common/page-header';
 import { LibraryToolbar } from '@/components/common/library-toolbar';
 import { EmptyState } from '@/components/common/empty-state';
+import { OfflineBanner } from '@/components/common/offline-banner';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -97,12 +98,9 @@ export function AssetGalleryPage() {
       />
 
       {offline ? (
-        <div className="border-b border-border-soft bg-warn-subtle px-6 py-2.5">
-          <p className="text-sm leading-relaxed text-fg-2">
-            <span className="font-medium text-warn">后端未连接</span> ——
-            下面是演示条目（不含真实图片字节，只展示归档结构）。接上后端后会直接显示缩略图。
-          </p>
-        </div>
+        <OfflineBanner>
+          下面是演示条目（不含真实图片字节，只展示归档结构）。接上后端后会直接显示缩略图。
+        </OfflineBanner>
       ) : null}
 
       <div className="space-y-4 px-6 py-5">

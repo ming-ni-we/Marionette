@@ -132,11 +132,12 @@ export function MessageBubble({
           </div>
         )}
 
-        {/* 元信息操作：默认弱化，hover/focus-within 才升亮 */}
+        {/* 元信息操作：默认弱化，hover/focus-within 才升亮；
+            reduced-motion 下常显（避免 opacity 过渡被禁用时反而闪烁） */}
         {!editing ? (
           <div
             className={cn(
-              'mt-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover/message:opacity-100 focus-within:opacity-100',
+              'mt-1.5 flex items-center gap-0.5 opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover/message:opacity-100 focus-within:opacity-100 motion-reduce:opacity-60 motion-reduce:transition-none',
               isUser && 'flex-row-reverse',
             )}
           >

@@ -37,7 +37,7 @@ export function LoginPage() {
 
   return (
     <main className="grid min-h-dvh place-items-center bg-bg px-4">
-      <div className="w-full max-w-sm">
+      <div className="mx-auto w-full max-w-[380px] px-6">
         <div className="mb-6 flex items-center gap-2.5">
           <span className="grid size-8 place-items-center rounded-md border border-border bg-surface text-accent">
             <Network className="size-4" aria-hidden="true" />
@@ -98,7 +98,7 @@ export function LoginPage() {
           <Button
             type="submit"
             variant="primary"
-            className="w-full"
+            className="w-full disabled:border disabled:border-border-strong disabled:bg-transparent disabled:text-muted disabled:opacity-100"
             loading={login.isPending}
             disabled={password.length === 0}
           >

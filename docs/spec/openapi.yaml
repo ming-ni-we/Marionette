@@ -1241,8 +1241,17 @@ paths:
     put:
       tags: [Config]
       summary: 设置内容审核层（可开关 / 可配置规则）
-      description: 单机自部署下允许整体关闭；开启时输入/输出双端过滤。
+      description: >
+        单机自部署下允许整体关闭；开启时输入/输出双端过滤。
+        整体关闭（enabled=false）时必须携带风险确认标记：请求体 risk_ack=true 或
+        查询参数 ?risk_ack=true，否则返回 400。
       operationId: setModerationConfig
+      parameters:
+        - name: risk_ack
+          in: query
+          required: false
+          description: 关闭审核层时的风险确认标记（等价于请求体 risk_ack=true）。
+          schema: { type: boolean, default: false }
       requestBody:
         required: true
         content:
@@ -1261,6 +1270,47 @@ paths:
                     properties:
                       data:
                         $ref: '#/components/schemas/ModerationConfig'
+
+  # ---------------- Config: Image backend (F12) ----------------
+  /api/v1/config/image:
+    get:
+      tags: [Config]
+      summary: 获取出图后端配置（api_key 返回 masked，不回显明文）
+      operationId: getImageConfig
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImageConfig'
+    put:
+      tags: [Config]
+      summary: 设置出图后端
+      operationId: setImageConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageConfigInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImageConfig'
 
   # ---------------- Config: ComfyUI probe (F12) ----------------
   /api/v1/config/comfyui/probe:
@@ -1556,6 +1606,22 @@ components:
         message: { type: string, description: 面向用户的中文说明 }
         model_seen: { type: string, nullable: true }
 
+    ImageConfigInput:
+      type: object
+      properties:
+        provider: { type: string, enum: [cloud, local_comfyui], default: cloud }
+        base_url: { type: string }
+        api_key: { type: string, description: 只写；读取时返回 masked（如 sk-***abc） }
+        model: { type: string }
+
+    ImageConfig:
+      allOf:
+        - $ref: '#/components/schemas/ImageConfigInput'
+        - type: object
+          properties:
+            active: { type: boolean, description: v1 仅单后端，恒为 true }
+            updated_at: { type: string, format: date-time }
+
     ModerationConfig:
       type: object
       properties:
@@ -1563,6 +1629,12 @@ components:
         check_input: { type: boolean, default: true }
         check_output: { type: boolean, default: true }
         provider: { type: string, enum: [builtin_wordlist, cloud], default: builtin_wordlist }
+        risk_ack:
+          type: boolean
+          default: false
+          description: >
+            风险确认标记。当本次写入把 enabled 由 true 改为 false（整体关闭审核层）时**必须**为 true，
+            否则返回 400；仅用于校验，不落库。
         rules:
           type: object
           properties:

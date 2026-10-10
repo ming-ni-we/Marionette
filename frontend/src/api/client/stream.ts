@@ -20,12 +20,33 @@ export function streamChat(
   body: { input: string; idempotency_key?: string; overrides?: Record<string, unknown> },
   callbacks: StreamCallbacks,
 ): { abort: () => void } {
+  return openSse(`/sessions/${sessionId}/stream`, body, callbacks);
+}
+
+/**
+ * 消费 POST /sessions/{id}/regenerate 的 SSE 流（swipe 重生成）。
+ * 请求体契约见 openapi.yaml：{ message_id?, overrides? }（无 input）。
+ */
+export function regenerateChat(
+  sessionId: string,
+  body: { message_id?: string; overrides?: Record<string, unknown> },
+  callbacks: StreamCallbacks,
+): { abort: () => void } {
+  return openSse(`/sessions/${sessionId}/regenerate`, body, callbacks);
+}
+
+/** 打开任意返回 text/event-stream 的 POST 端点并逐帧回调。 */
+function openSse(
+  path: string,
+  body: Record<string, unknown>,
+  callbacks: StreamCallbacks,
+): { abort: () => void } {
   const controller = new AbortController();
 
   const run = async () => {
     let res: Response;
     try {
-      res = await fetch(buildUrl(`/sessions/${sessionId}/stream`), {
+      res = await fetch(buildUrl(path), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },

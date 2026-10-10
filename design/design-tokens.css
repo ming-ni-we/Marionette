@@ -30,6 +30,7 @@
   --p-neutral-200:  #D2D5DA;
   --p-neutral-300:  #B6BBC3;
   --p-neutral-400:  #8E949D;
+  --p-neutral-450:  #6E7480;
   --p-neutral-500:  #676D76;
   --p-neutral-600:  #4A5058;
   --p-neutral-650:  #3A3F46;
@@ -93,7 +94,7 @@
   --color-fg:   #E9EBEE;
   --color-fg-2: #C0C5CC;
   --color-muted: var(--p-neutral-400);
-  --color-meta:  #5E646C;
+  --color-meta:  #7A8088;  /* 深底对比度≈4.6:1，满足 WCAG AA 正文 */
 
   /* Border */
   --color-border:        var(--p-white-09);
@@ -145,7 +146,7 @@
   --color-fg:   var(--p-neutral-800);
   --color-fg-2: var(--p-neutral-600);
   --color-muted: var(--p-neutral-500);
-  --color-meta:  var(--p-neutral-400);
+  --color-meta:  var(--p-neutral-450);  /* 白底对比度≈4.7:1，与深色主题同等可读 */
 
   --color-border:        var(--p-neutral-200);
   --color-border-strong: var(--p-neutral-300);

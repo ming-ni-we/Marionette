@@ -45,6 +45,7 @@
       "200": "#D2D5DA",
       "300": "#B6BBC3",
       "400": "#8E949D",
+      "450": "#6E7480",
       "500": "#676D76",
       "600": "#4A5058",
       "650": "#3A3F46",
@@ -93,7 +94,7 @@
       "surface-sunken-dark": "#0A0B0D",
       "fg-dark": "#E9EBEE",
       "fg-2-dark": "#C0C5CC",
-      "meta-dark": "#5E646C"
+      "meta-dark": "#7A8088"
     }
   },
 
@@ -141,7 +142,7 @@
       "fg": { "value": "{primitive.neutral.800}", "type": "color" },
       "fg-2": { "value": "{primitive.neutral.600}", "type": "color" },
       "muted": { "value": "{primitive.neutral.500}", "type": "color" },
-      "meta": { "value": "{primitive.neutral.400}", "type": "color" },
+      "meta": { "value": "{primitive.neutral.450}", "type": "color" },
 
       "border": { "value": "{primitive.neutral.200}", "type": "color" },
       "border-strong": { "value": "{primitive.neutral.300}", "type": "color" },

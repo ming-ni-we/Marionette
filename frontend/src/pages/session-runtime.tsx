@@ -179,7 +179,7 @@ export function SessionRuntimePage() {
         generating={chat.generating}
         error={chat.error}
         hasOpening={Boolean((session.messages[0]?.content ?? '').trim())}
-        onRegenerate={(m) => chat.regenerateWith(m.content)}
+        onRegenerate={(m) => chat.regenerate(m.id)}
         onFork={handleFork}
         onRetry={chat.retry}
       />
