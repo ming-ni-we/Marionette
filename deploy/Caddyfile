@@ -1,0 +1,32 @@
+# Caddy 反向代理 —— 「提线」(Marionette)
+#
+# DOMAIN 由 docker-compose.yml 通过环境变量注入：
+#   1) 有域名（生产，推荐）：DOMAIN=play.example.com
+#      Caddy 会自动向 Let's Encrypt 申请并续期证书；要求 80/443 端口对公网开放、
+#      且域名 A 记录已指向本机公网 IP。证书/账号数据落 ./data/caddy。
+#   2) 无域名 / 本地调试：DOMAIN=:80
+#      仅监听 80 端口走纯 HTTP，不申请证书。
+#      注意： 纯 HTTP 下会话 Cookie 无法开启 Secure，且口令以明文过网——绝不可用于公网。
+#
+# 若 DOMAIN 既不是域名也不是 :80（例如写成端口号），Caddy 会自动使用内部 CA 签发本地证书。
+
+{$DOMAIN} {
+	encode gzip zstd
+
+	# 导入 PNG/WEBP 角色卡、上传图集素材需要较大的请求体
+	request_body {
+		max_size 32MB
+	}
+
+	reverse_proxy api:8000 {
+		# 关键：SSE（/api/v1/sessions/{id}/stream）必须关闭响应缓冲。
+		# flush_interval -1 表示每收到一块数据立刻下发，否则前端看不到逐字输出。
+		flush_interval -1
+		header_up X-Real-IP {remote_host}
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

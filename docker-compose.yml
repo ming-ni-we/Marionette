@@ -1,0 +1,111 @@
+# 「提线」(Marionette) —— 云端私有单实例编排
+# 形态锁定见 docs/spec/SPEC.md §4.3；端到端验证见 §12。
+#
+# 三个服务：caddy（反代 + 自动 HTTPS）/ api（FastAPI，同时托管 SPA）/ db（PostgreSQL 18 + pgvector）
+#
+# 重要：api 的构建上下文是「仓库根目录」，Dockerfile 位于 backend/。
+#   原因：Dockerfile 需要跨目录构建 frontend/（多阶段，见 backend/Dockerfile）。
+#   Docker 不允许 COPY 构建上下文之外的文件，故 context 必须是仓库根。
+#
+# 启动：cp .env.example .env && 填好变量 && docker compose up -d
+
+name: marionette
+
+services:
+  db:
+    # 官方 postgres 镜像不含 pgvector；必须用 pgvector/pgvector:pg18（见 pitfalls.jsonl）
+    image: pgvector/pgvector:pg18
+    container_name: marionette-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: "${DB_USER:-postgres}"
+      POSTGRES_PASSWORD: "${DB_PASSWORD:-marionette_dev_password}"
+      POSTGRES_DB: "${DB_NAME:-marionette}"
+      # 显式指定数据目录：pg18 官方镜像默认 PGDATA 变了，写死更稳妥（与 SPEC §4.1 一致）
+      PGDATA: "/var/lib/postgresql/data"
+      # UTF-8 + C locale，避免中文检索/排序出现意外行为
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    volumes:
+      - ./data/pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-postgres} -d ${DB_NAME:-marionette}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    networks:
+      - marionette
+
+  api:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: marionette-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: "${APP_ENV:-production}"
+      # 数据库连接串：容器内走服务名 db（不是 127.0.0.1，见 pitfalls「容器访问宿主机」）
+      DATABASE_URL: "postgresql+asyncpg://${DB_USER:-postgres}:${DB_PASSWORD:-marionette_dev_password}@db:5432/${DB_NAME:-marionette}"
+      # 访问控制（AC-02 / AC-03）
+      ACCESS_PASSWORD: "${ACCESS_PASSWORD:-change-me-now}"
+      SECRET_KEY: "${SECRET_KEY:-dev-insecure-secret-change-me}"
+      SESSION_COOKIE_SECURE: "${SESSION_COOKIE_SECURE:-true}"
+      ACCESS_MAX_FAILED: "${ACCESS_MAX_FAILED:-5}"
+      ACCESS_LOCK_WINDOW_SECONDS: "${ACCESS_LOCK_WINDOW_SECONDS:-900}"
+      CORS_ORIGINS: "${CORS_ORIGINS:-}"
+      # LLM 后端（BYOK，自研 OpenAI 兼容薄层）
+      LLM_PROVIDER: "${LLM_PROVIDER:-openai_compatible}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_MODEL: "${LLM_MODEL:-}"
+      # 图像生成后端（BYOK，云端图像 API）
+      IMAGE_PROVIDER: "${IMAGE_PROVIDER:-cloud}"
+      IMAGE_BASE_URL: "${IMAGE_BASE_URL:-}"
+      IMAGE_API_KEY: "${IMAGE_API_KEY:-}"
+      IMAGE_MODEL: "${IMAGE_MODEL:-}"
+      # 本地卷
+      ASSETS_DIR: "/app/data/assets"
+      CONFIG_DIR: "/app/data/config"
+      STATIC_DIR: "/app/static"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - ./data/assets:/app/data/assets
+      - ./data/config:/app/data/config
+    expose:
+      - "8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+    networks:
+      - marionette
+
+  caddy:
+    image: caddy:2
+    container_name: marionette-caddy
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      # 有域名：DOMAIN=play.example.com（Caddy 自动申请 HTTPS 证书）
+      # 无域名：DOMAIN=:80（纯 HTTP，仅供本地调试）
+      DOMAIN: "${DOMAIN:-:80}"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy/data:/data
+      - ./data/caddy/config:/config
+    networks:
+      - marionette
+
+networks:
+  marionette:
+    driver: bridge

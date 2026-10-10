@@ -1,0 +1,23 @@
+# 构建上下文排除项（避免把数据、密钥、依赖塞进镜像）
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+data/
+node_modules/
+**/node_modules/
+**/dist/
+**/build/
+**/__pycache__/
+**/*.pyc
+.venv/
+**/.venv/
+**/.pytest_cache/
+**/.ruff_cache/
+**/.mypy_cache/
+docs/
+design/
+.workbuddy/
+*.md
+!README.md

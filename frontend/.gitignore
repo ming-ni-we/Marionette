@@ -1,0 +1,8 @@
+node_modules
+dist
+dist-ssr
+dist-debug
+.smoke-bundle.mjs
+*.local
+.vite
+*.tsbuildinfo

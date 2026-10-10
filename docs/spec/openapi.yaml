@@ -1,0 +1,2154 @@
+openapi: 3.0.3
+info:
+  title: AI 角色扮演平台 API
+  description: >
+    MVP 闭环 API 契约：内容仓库 CRUD（角色卡/世界书/预设）、会话生命周期、
+    流式对话（SSE）、世界书触发测试、图像生成触发、导入导出。
+
+    前后端以此文件为唯一依据：前端用 openapi-typescript 生成 TS 类型 + MSW mock；
+    后端据此实现。任何变更必须先改本文件再改代码。
+
+    统一响应信封：{ code, data, message }；成功 code=0。
+    内容对象结构见 docs/spec/schemas.md。
+  version: 1.0.0
+  contact:
+    name: 首席架构师 高见远
+servers:
+  - url: http://localhost:8000
+    description: 单机 docker compose 默认
+tags:
+  - name: Auth
+    description: 单用户口令登录 / 登出 / 会话校验（公开端点，不需要会话令牌）
+  - name: Cards
+    description: 角色卡
+  - name: WorldBooks
+    description: 世界书
+  - name: Presets
+    description: 预设
+  - name: Sessions
+    description: 会话生命周期与对话
+  - name: Images
+    description: 图像生成钩子
+  - name: Assets
+    description: 资产（头像/图集/生成图）
+  - name: ImportExport
+    description: 导入导出
+  - name: System
+    description: 系统信息与自检
+  - name: Config
+    description: 首启向导配置（LLM 后端 / 审核层 / ComfyUI）
+  - name: Telemetry
+    description: 本地匿名埋点与诊断（不上报云端）
+
+paths:
+  /api/v1/system/info:
+    get:
+      tags: [System]
+      summary: 运行时能力与版本信息
+      operationId: getSystemInfo
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemInfo'
+
+  # ---------------- Auth (public) ----------------
+  /api/v1/auth/login:
+    post:
+      tags: [Auth]
+      summary: 单用户口令登录（公开端点）
+      description: >
+        **公开端点（不需要会话令牌）**。校验口令通过后签发 HttpOnly 签名会话令牌，
+        经 Set-Cookie 下发（SameSite=Lax，生产 HTTPS 下 Secure）。不做注册、不做密码找回、不建用户表。
+        连续 5 次错误口令触发锁定；另有接口级总量限流（防暴力枚举）。
+      operationId: authLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: 登录成功，Set-Cookie 携带 HttpOnly 会话令牌
+          headers:
+            Set-Cookie:
+              description: 会话令牌（HttpOnly / SameSite=Lax；生产 HTTPS 下 Secure）
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LoginResponse'
+        '401':
+          description: 口令不正确（code=4010, error_class=auth_failed）
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+        '429':
+          description: 触发限流（code=4290）；响应头 Retry-After 给出可重试秒数
+          headers:
+            Retry-After:
+              description: 建议重试等待秒数
+              schema: { type: integer }
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ErrorEnvelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          retry_after: { type: integer }
+
+  /api/v1/auth/logout:
+    post:
+      tags: [Auth]
+      summary: 登出（公开端点）
+      description: >
+        **公开端点（不需要会话令牌）**。清除会话 Cookie（下发的 Set-Cookie 将 Max-Age 置 0）。
+        令牌为无状态自签，登出即客户端丢弃令牌。
+        实现返回 200 + 统一信封（`{"logged_out": true}`），而非 204；见 SPEC §13 变更记录。
+      operationId: authLogout
+      security: []
+      responses:
+        '200':
+          description: 已登出（Cookie 已清除）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          logged_out: { type: boolean, example: true }
+
+  /api/v1/auth/session:
+    get:
+      tags: [Auth]
+      summary: 校验当前会话（公开端点，供前端路由守卫）
+      description: >
+        **公开端点（不需要会话令牌）**。返回当前是否已认证；未认证时返回 200 且
+        `authenticated=false`（不抛 401），便于前端决定是否跳转登录页。
+      operationId: authSession
+      security: []
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SessionInfo'
+
+  # ---------------- Cards ----------------
+  /api/v1/cards:
+    get:
+      tags: [Cards]
+      summary: 列出角色卡
+      description: 支持关键词（pg_trgm 子串/模糊）、标签多值筛选、排序。参数语义见 SearchQuery。
+      operationId: listCards
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/Tags'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Order'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PagedCards'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [Cards]
+      summary: 创建角色卡
+      operationId: createCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardInput'
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Card'
+
+  /api/v1/cards/{cardId}:
+    parameters:
+      - $ref: '#/components/parameters/CardId'
+    get:
+      tags: [Cards]
+      summary: 获取角色卡
+      operationId: getCard
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Card'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Cards]
+      summary: 部分更新角色卡
+      operationId: updateCard
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CardInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Card'
+    delete:
+      tags: [Cards]
+      summary: 删除角色卡
+      operationId: deleteCard
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  # ---------------- WorldBooks ----------------
+  /api/v1/worldbooks:
+    get:
+      tags: [WorldBooks]
+      summary: 列出世界书
+      operationId: listWorldBooks
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/Tags'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Order'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PagedWorldBooks'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [WorldBooks]
+      summary: 创建世界书
+      operationId: createWorldBook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorldBookInput'
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WorldBook'
+
+  /api/v1/worldbooks/{worldBookId}:
+    parameters:
+      - $ref: '#/components/parameters/WorldBookId'
+    get:
+      tags: [WorldBooks]
+      summary: 获取世界书
+      operationId: getWorldBook
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WorldBook'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [WorldBooks]
+      summary: 部分更新世界书
+      operationId: updateWorldBook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorldBookInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WorldBook'
+    delete:
+      tags: [WorldBooks]
+      summary: 删除世界书
+      operationId: deleteWorldBook
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/worldbooks/{worldBookId}/test:
+    parameters:
+      - $ref: '#/components/parameters/WorldBookId'
+    post:
+      tags: [WorldBooks]
+      summary: 世界书触发自测（不落库）
+      description: >
+        传入样例文本，返回每条条目的逐项判定：是否命中、命中哪个 key、匹配类型、
+        token 数、预算内是否保留、最终插入位置。用于排查"为什么没触发"。
+      operationId: testWorldBook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorldBookTestRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/WorldBookTestResult'
+
+  # ---------------- Presets ----------------
+  /api/v1/presets:
+    get:
+      tags: [Presets]
+      summary: 列出预设
+      operationId: listPresets
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Order'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PagedPresets'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [Presets]
+      summary: 创建预设
+      operationId: createPreset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresetInput'
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Preset'
+
+  /api/v1/presets/{presetId}:
+    parameters:
+      - $ref: '#/components/parameters/PresetId'
+    get:
+      tags: [Presets]
+      summary: 获取预设
+      operationId: getPreset
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Preset'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Presets]
+      summary: 部分更新预设
+      operationId: updatePreset
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PresetInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Preset'
+    delete:
+      tags: [Presets]
+      summary: 删除预设
+      operationId: deletePreset
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  # ---------------- Sessions ----------------
+  /api/v1/sessions:
+    get:
+      tags: [Sessions]
+      summary: 列出会话
+      operationId: listSessions
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/Status'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Order'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PagedSessions'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [Sessions]
+      summary: 开启一场会话
+      operationId: createSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreateRequest'
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Session'
+
+  /api/v1/sessions/{sessionId}:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Sessions]
+      summary: 获取会话（含消息与记忆）
+      operationId: getSession
+      parameters:
+        - name: include_messages
+          in: query
+          schema: { type: boolean, default: true }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Session'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    patch:
+      tags: [Sessions]
+      summary: 更新会话（改绑定/人设/状态/场景）
+      operationId: updateSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionUpdateRequest'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Session'
+    delete:
+      tags: [Sessions]
+      summary: 删除会话
+      operationId: deleteSession
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/sessions/{sessionId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      summary: 追加一条消息（不触发生成）
+      operationId: appendMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MessageInput'
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Message'
+
+  /api/v1/sessions/{sessionId}/stream:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      summary: 发送玩家输入并流式接收回复（SSE）
+      description: >
+        Server-Sent Events。事件顺序：world_info -> start -> delta* -> usage -> (image?) -> done；
+        失败时发 error 事件。客户端用 EventSource/ fetch-ReadableStream 消费。
+        注意：响应为 text/event-stream，非 JSON 信封。
+      operationId: streamChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StreamRequest'
+      responses:
+        '200':
+          description: SSE 流
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                description: |
+                  event: world_info
+                  data: {"triggered":[{"entry_id":"...","match_type":"keyword","in_budget":true}],"trace_id":"..."}
+
+                  event: start
+                  data: {"message_id":"...","estimated_prompt_tokens":3456}
+
+                  event: delta
+                  data: {"text":"她"}
+
+                  event: usage
+                  data: {"prompt_tokens":3456,"completion_tokens":120}
+
+                  event: image
+                  data: {"asset_id":"...","job_id":"..."}
+
+                  event: done
+                  data: {"message_id":"...","status":"complete"}
+
+                  event: error
+                  data: {"code":5021,"message":"LLM upstream unreachable"}
+        '409':
+          description: 会话正忙（并发生成被拒）
+
+  /api/v1/sessions/{sessionId}/interrupt:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      summary: 中断当前生成（幂等）
+      operationId: interruptSession
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          interrupted: { type: boolean }
+
+  /api/v1/sessions/{sessionId}/regenerate:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      summary: 重新生成（swipe）
+      description: 对指定位置（或最后一条）重新生成，产生新的 swipe。
+      operationId: regenerateMessage
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegenerateRequest'
+      responses:
+        '200':
+          description: SSE 流（同 /stream）
+          content:
+            text/event-stream:
+              schema: { type: string }
+
+  /api/v1/sessions/{sessionId}/fork:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    post:
+      tags: [Sessions]
+      summary: 分支会话（F9 分支）
+      description: 从指定消息处复制出一条独立分支会话，原会话不受影响。
+      operationId: forkSession
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from_message_id:
+                  type: string
+                  format: uuid
+                  description: 从该消息（含）分叉；缺省为最后一条消息
+                title: { type: string }
+      responses:
+        '201':
+          description: 已创建分支
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Session'
+
+  /api/v1/sessions/{sessionId}/last-context:
+    parameters:
+      - $ref: '#/components/parameters/SessionId'
+    get:
+      tags: [Sessions]
+      summary: 获取上一轮真实组装的上下文与触发轨迹
+      description: 返回完整 prompt 全文 + 各段 token 占用 + 世界书 trace + 估算/实际对账。用于调试与回归。
+      operationId: getLastContext
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ContextSnapshot'
+
+  # ---------------- Images ----------------
+  /api/v1/images/jobs:
+    post:
+      tags: [Images]
+      summary: 触发一次图像生成
+      operationId: createImageJob
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImageJobCreateRequest'
+      responses:
+        '202':
+          description: 已入队
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImageJob'
+
+  /api/v1/images/jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Images]
+      summary: 查询图像生成任务
+      operationId: getImageJob
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImageJob'
+
+  # ---------------- Assets ----------------
+  /api/v1/assets:
+    get:
+      tags: [Assets]
+      summary: 列出资产（全局资产视图，覆盖 PRD F16 图集搜索/筛选）
+      description: >
+        以角色为中心的资产库。支持关键词/标签/排序（复用统一检索参数）+
+        按归属过滤 card_id / session_id。参数语义见 SearchQuery。
+      operationId: listAssets
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/Tags'
+        - $ref: '#/components/parameters/CardIdQuery'
+        - $ref: '#/components/parameters/SessionIdQuery'
+        - $ref: '#/components/parameters/AssetKind'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Order'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PagedAssets'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+    post:
+      tags: [Assets]
+      summary: 上传资产（头像/图集/背景）
+      operationId: uploadAsset
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, kind]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                kind:
+                  type: string
+                  enum: [avatar, gallery, background, generated]
+                card_id:
+                  type: string
+                  format: uuid
+                  description: 归属角色（可空）
+                session_id:
+                  type: string
+                  format: uuid
+                  description: 归属会话（可空）
+                tags:
+                  type: string
+                  description: 逗号分隔标签（可空）
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Asset'
+
+  /api/v1/cards/{cardId}/assets:
+    parameters:
+      - $ref: '#/components/parameters/CardId'
+    get:
+      tags: [Assets]
+      summary: 列出某角色的资产（便捷子集，等价于 /assets?card_id={cardId}）
+      operationId: listCardAssets
+      parameters:
+        - $ref: '#/components/parameters/Q'
+        - $ref: '#/components/parameters/Tags'
+        - $ref: '#/components/parameters/AssetKind'
+        - $ref: '#/components/parameters/Sort'
+        - $ref: '#/components/parameters/Order'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/PagedAssets'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/assets/{assetId}:
+    parameters:
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Assets]
+      summary: 获取资产元数据
+      operationId: getAsset
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Asset'
+    delete:
+      tags: [Assets]
+      summary: 删除资产
+      operationId: deleteAsset
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/assets/{assetId}/content:
+    parameters:
+      - name: assetId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Assets]
+      summary: 获取资产二进制内容
+      operationId: getAssetContent
+      responses:
+        '200':
+          description: 二进制内容
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+
+  # ---------------- Import / Export ----------------
+  /api/v1/import/card:
+    post:
+      tags: [ImportExport]
+      summary: 导入角色卡（SillyTavern V1/V2/V3 JSON/PNG/WEBP）
+      operationId: importCard
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: .json / .png / .webp 角色卡
+                on_conflict:
+                  type: string
+                  enum: [rename, overwrite, skip]
+                  default: rename
+      responses:
+        '201':
+          description: 已导入
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImportResult'
+
+  /api/v1/import/worldbook:
+    post:
+      tags: [ImportExport]
+      summary: 导入世界书（SillyTavern World Info JSON）
+      operationId: importWorldBook
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                on_conflict:
+                  type: string
+                  enum: [rename, overwrite, skip]
+                  default: rename
+      responses:
+        '201':
+          description: 已导入
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ImportResult'
+
+  /api/v1/export/bundle:
+    post:
+      tags: [ImportExport]
+      summary: 导出可移植包（卡片+世界书+预设+素材 zip）
+      operationId: exportBundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ExportBundleRequest'
+      responses:
+        '200':
+          description: zip 文件
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+
+  /api/v1/export/card/{cardId}:
+    parameters:
+      - $ref: '#/components/parameters/CardId'
+    get:
+      tags: [ImportExport]
+      summary: 导出单卡片为 SillyTavern V2 JSON
+      operationId: exportCard
+      parameters:
+        - name: format
+          in: query
+          schema: { type: string, enum: [json, png], default: json }
+      responses:
+        '200':
+          description: 卡片文件
+          content:
+            application/json:
+              schema: { type: object }
+            image/png:
+              schema: { type: string, format: binary }
+
+  # ---------------- System / Onboarding (F1) ----------------
+  /api/v1/system/selfcheck:
+    get:
+      tags: [System]
+      summary: 启动自检（Docker/DB/GPU/端口/ComfyUI）
+      description: >
+        首启链路第 1 步。返回逐项自检结果与中文修复指引，
+        失败项给出可读原因（缺依赖/端口占用/GPU 不可用）。
+      operationId: systemSelfCheck
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SelfCheckResult'
+
+  /api/v1/onboarding/samples:
+    post:
+      tags: [Config]
+      summary: 安装内置示例内容（F1 步骤3）
+      description: 安装 3-5 张带世界书与默认预设的官方示例卡，避免空白页。
+      operationId: installSampleContent
+      responses:
+        '201':
+          description: 已安装
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          card_ids:
+                            type: array
+                            items: { type: string, format: uuid }
+                          worldbook_ids:
+                            type: array
+                            items: { type: string, format: uuid }
+                          preset_ids:
+                            type: array
+                            items: { type: string, format: uuid }
+
+  # ---------------- Config: LLM backend (F1) ----------------
+  /api/v1/config/llm:
+    get:
+      tags: [Config]
+      summary: 获取当前 LLM 后端配置
+      operationId: getLlmConfig
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LlmConfig'
+    put:
+      tags: [Config]
+      summary: 设置 LLM 后端（v1 仅单后端）
+      operationId: setLlmConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LlmConfigInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/LlmConfig'
+
+  /api/v1/config/llm/test:
+    post:
+      tags: [Config]
+      summary: 测试 LLM 连接（F1 关键：3 秒内返回成败 + 错误分类）
+      description: >
+        返回 ok 与 error_class。error_class 枚举：
+        model_not_found（模型名错）/ endpoint_invalid（端点缺 /v1 或路径错）/
+        auth_failed（key 无效/缺失）/ quota_exhausted（余额为 0）/ network_unreachable（连不上）/
+        timeout / unknown。
+      operationId: testLlmConnection
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LlmConfigInput'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ConnectionTestResult'
+
+  # ---------------- Config: Moderation (F6) ----------------
+  /api/v1/config/moderation:
+    get:
+      tags: [Config]
+      summary: 获取内容审核层配置
+      operationId: getModerationConfig
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ModerationConfig'
+    put:
+      tags: [Config]
+      summary: 设置内容审核层（可开关 / 可配置规则）
+      description: 单机自部署下允许整体关闭；开启时输入/输出双端过滤。
+      operationId: setModerationConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ModerationConfig'
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ModerationConfig'
+
+  # ---------------- Config: ComfyUI probe (F12) ----------------
+  /api/v1/config/comfyui/probe:
+    post:
+      tags: [Config]
+      summary: 探测本机 ComfyUI 是否可用
+      operationId: probeComfyUI
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                base_url: { type: string, default: "http://host.docker.internal:8188" }
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Envelope'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          reachable: { type: boolean }
+                          device: { type: string, nullable: true, description: 来自 /system_stats }
+                          checkpoints:
+                            type: array
+                            items: { type: string }
+
+  # ---------------- Telemetry / diagnostics (F10) ----------------
+  /api/v1/events:
+    post:
+      tags: [Telemetry]
+      summary: 上报本地匿名事件（仅落本地，不上报云端）
+      description: 事件命名 {对象}_{动作}；不采集原始输入内容、不上报 IP。
+      operationId: recordEvent
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string, example: worldbook_entry_triggered }
+                properties: { type: object, additionalProperties: true }
+      responses:
+        '202':
+          description: 已记录
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Envelope'
+
+  /api/v1/diagnostics/export:
+    get:
+      tags: [Telemetry]
+      summary: 导出诊断包（本地日志 + 自检结果 + 配置快照，脱敏）
+      operationId: exportDiagnostics
+      responses:
+        '200':
+          description: zip 诊断包
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+
+components:
+  parameters:
+    Q:
+      name: q
+      in: query
+      description: >
+        关键词检索。走 pg_trgm 三字组 + ILIKE，支持中文子串/模糊匹配
+        （对应架构 ADR-005 / SearchProvider）。多个词按 AND 组合。长度上限 200 字符。
+      schema: { type: string, maxLength: 200 }
+    Tags:
+      name: tags
+      in: query
+      description: 标签多值筛选（AND：需同时具备所列标签）。命名与 ContentItem 的 tags 字段一致。
+      schema:
+        type: array
+        items: { type: string }
+      style: form
+      explode: true
+    Sort:
+      name: sort
+      in: query
+      description: >
+        排序字段（统一命名，各资源支持的子集一致）。非法值返回 400。
+        会话额外支持 last_message_at。
+      schema:
+        type: string
+        enum: [created_at, updated_at, name, last_message_at]
+        default: updated_at
+    Order:
+      name: order
+      in: query
+      description: 排序方向。
+      schema:
+        type: string
+        enum: [asc, desc]
+        default: desc
+    Status:
+      name: status
+      in: query
+      description: 会话状态筛选（仅会话列表使用）。
+      schema: { type: string, enum: [active, paused, archived] }
+    CardIdQuery:
+      name: card_id
+      in: query
+      description: 按归属角色过滤（资产库"以角色为中心"）。
+      schema: { type: string, format: uuid }
+    SessionIdQuery:
+      name: session_id
+      in: query
+      description: 按归属会话过滤（某场会话产生的快照/出图）。
+      schema: { type: string, format: uuid }
+    AssetKind:
+      name: kind
+      in: query
+      description: 资产类型过滤。
+      schema: { type: string, enum: [avatar, gallery, background, generated] }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    CardId:
+      name: cardId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    WorldBookId:
+      name: worldBookId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    PresetId:
+      name: presetId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    SessionId:
+      name: sessionId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+
+  responses:
+    NotFound:
+      description: 资源不存在
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+    BadRequest:
+      description: >
+        查询/请求参数校验失败（错误码 4000）。典型原因：
+        sort 字段非法、order 非法、limit 越界（>100）、page < 1、q 超长（>200）。
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorEnvelope'
+
+  schemas:
+    Envelope:
+      type: object
+      required: [code, data]
+      properties:
+        code: { type: integer, example: 0 }
+        data: {}
+        message: { type: string, example: "" }
+      description: 统一响应信封。code=0 成功，非 0 为错误码。
+
+    ErrorEnvelope:
+      type: object
+      required: [code, message]
+      description: >
+        统一错误信封。code 为分段错误码：4000 参数校验 / 4010 未认证 / 4031 审核拦截 /
+        4040 不存在 / 4090 状态冲突 / 4290 限流 / 5000 内部 / 5010 未实现 / 5021 LLM 上游不可达。
+        error_class 为对外契约的 7 类之一（不得增删）。
+      properties:
+        code: { type: integer, example: 4010 }
+        data: { nullable: true }
+        message: { type: string, example: "未登录或会话已失效，请重新输入访问口令。" }
+        error_class:
+          type: string
+          nullable: true
+          description: 统一错误分类（7 类枚举）
+          enum: [model_not_found, endpoint_invalid, auth_failed, quota_exhausted, network_unreachable, timeout, unknown]
+        model_seen:
+          type: string
+          nullable: true
+          description: LLM 连通性测试回显时实际探测到的模型名
+
+    LoginRequest:
+      type: object
+      required: [password]
+      properties:
+        password: { type: string, description: 单用户访问口令 }
+
+    LoginResponse:
+      type: object
+      description: 登录成功返回体（对应后端 LoginResponse）
+      properties:
+        authenticated: { type: boolean, default: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        message: { type: string, default: "" }
+
+    SessionInfo:
+      type: object
+      description: 当前会话状态（对应后端 SessionStatusResponse）；未认证时 authenticated=false
+      properties:
+        authenticated: { type: boolean, default: false }
+        subject: { type: string, nullable: true, description: 令牌主体（单用户场景通常为 "single"） }
+        expires_at: { type: string, format: date-time, nullable: true }
+
+    SystemInfo:
+      type: object
+      properties:
+        app_version: { type: string }
+        schema_versions:
+          type: object
+          properties:
+            card: { type: string, example: "1.0" }
+            worldbook: { type: string, example: "1.0" }
+            preset: { type: string, example: "1.0" }
+            session: { type: string, example: "1.0" }
+        llm_provider: { type: string, example: "ollama" }
+        llm_model: { type: string, example: "qwen3:8b" }
+        embedding_model: { type: string, example: "BAAI/bge-large-zh-v1.5" }
+        gpu_available: { type: boolean }
+        image_provider: { type: string, example: "comfyui" }
+
+    SelfCheckResult:
+      type: object
+      properties:
+        overall: { type: string, enum: [ok, degraded, failed] }
+        checks:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string, example: database }
+              status: { type: string, enum: [ok, warn, fail] }
+              detail: { type: string }
+              fix_hint: { type: string, description: 面向用户的中文修复指引 }
+        port_in_use: { type: boolean }
+        suggested_port: { type: integer }
+
+    LlmConfigInput:
+      type: object
+      required: [provider, base_url, model]
+      properties:
+        provider:
+          type: string
+          enum: [ollama, openai_compatible, zhipu, dashscope, deepseek]
+          description: ollama 走本地；其余走 OpenAI 兼容云端点
+        base_url: { type: string, example: "http://host.docker.internal:11434/v1" }
+        api_key: { type: string, description: 写入时加密存储，读取时脱敏为 *** }
+        model: { type: string, example: "qwen3:8b" }
+        context_window: { type: integer, default: 8192 }
+        extra:
+          type: object
+          additionalProperties: true
+          description: 透传给 provider 的额外参数
+
+    LlmConfig:
+      allOf:
+        - $ref: '#/components/schemas/LlmConfigInput'
+        - type: object
+          properties:
+            active: { type: boolean, description: v1 仅单后端，恒为 true }
+            updated_at: { type: string, format: date-time }
+
+    ConnectionTestResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        latency_ms: { type: integer }
+        error_class:
+          type: string
+          nullable: true
+          enum: [model_not_found, endpoint_invalid, auth_failed, quota_exhausted, network_unreachable, timeout, unknown]
+        message: { type: string, description: 面向用户的中文说明 }
+        model_seen: { type: string, nullable: true }
+
+    ModerationConfig:
+      type: object
+      properties:
+        enabled: { type: boolean, default: true, description: 单机自部署允许关闭 }
+        check_input: { type: boolean, default: true }
+        check_output: { type: boolean, default: true }
+        provider: { type: string, enum: [builtin_wordlist, cloud], default: builtin_wordlist }
+        rules:
+          type: object
+          properties:
+            blocked_words:
+              type: array
+              items: { type: string }
+              description: 基础词表（可配置）
+            block_on_match: { type: boolean, default: true }
+            label_ai_generated: { type: boolean, default: true, description: 输出附带"AI 生成内容"标识 }
+        updated_at: { type: string, format: date-time }
+
+    CardInput:
+      type: object
+      required: [spec, spec_version, data]
+      properties:
+        spec: { type: string, enum: [rpg_card] }
+        spec_version: { type: string, example: "1.0" }
+        data:
+          $ref: '#/components/schemas/CardData'
+        extensions: { type: object, additionalProperties: true }
+
+    Card:
+      allOf:
+        - $ref: '#/components/schemas/CardInput'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    CardData:
+      type: object
+      required: [name, first_mes]
+      properties:
+        name: { type: string, minLength: 1 }
+        description: { type: string, default: "" }
+        personality: { type: string, default: "" }
+        scenario: { type: string, default: "" }
+        first_mes: { type: string }
+        mes_example: { type: string, default: "" }
+        creator_notes: { type: string, default: "" }
+        system_prompt: { type: string, default: "" }
+        post_history_instructions: { type: string, default: "" }
+        alternate_greetings:
+          type: array
+          items: { type: string }
+          default: []
+        tags:
+          type: array
+          items: { type: string }
+          default: []
+        creator: { type: string, default: "" }
+        character_version: { type: string, default: "" }
+        character_book:
+          allOf:
+            - $ref: '#/components/schemas/WorldBookData'
+          nullable: true
+        extensions: { type: object, additionalProperties: true }
+
+    WorldBookInput:
+      type: object
+      required: [spec, spec_version, data]
+      properties:
+        spec: { type: string, enum: [rpg_worldbook] }
+        spec_version: { type: string, example: "1.0" }
+        data: { $ref: '#/components/schemas/WorldBookData' }
+        extensions: { type: object, additionalProperties: true }
+
+    WorldBook:
+      allOf:
+        - $ref: '#/components/schemas/WorldBookInput'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    WorldBookData:
+      type: object
+      required: [entries]
+      properties:
+        name: { type: string, default: "" }
+        description: { type: string, default: "" }
+        scan_depth: { type: integer, default: 4 }
+        token_budget: { type: integer, default: 1024 }
+        recursive_scanning: { type: boolean, default: false }
+        max_recursion_depth: { type: integer, default: 3 }
+        entries:
+          type: array
+          items: { $ref: '#/components/schemas/WorldBookEntry' }
+        extensions: { type: object, additionalProperties: true }
+
+    WorldBookEntry:
+      type: object
+      required: [keys, content, enabled]
+      properties:
+        id: { type: string, format: uuid }
+        keys:
+          type: array
+          items: { type: string }
+        secondary_keys:
+          type: array
+          items: { type: string }
+          default: []
+        content: { type: string }
+        comment: { type: string, default: "" }
+        enabled: { type: boolean, default: true }
+        constant: { type: boolean, default: false }
+        selective: { type: boolean, default: false }
+        case_sensitive: { type: boolean, default: false }
+        match_whole_words: { type: boolean, default: false }
+        use_regex: { type: boolean, default: false }
+        regex_flags: { type: string, default: "i" }
+        insertion_order: { type: integer, default: 100 }
+        priority: { type: integer, default: 10 }
+        position:
+          type: string
+          enum: [before_char, after_char, before_example, after_example, at_depth]
+          default: before_char
+        depth: { type: integer, default: 4 }
+        role:
+          type: string
+          enum: [system, user, assistant]
+          default: system
+        vector_recall: { type: boolean, default: false }
+        vector_threshold: { type: number, default: 0.75, minimum: 0, maximum: 1 }
+        token_count: { type: integer, readOnly: true }
+        extensions: { type: object, additionalProperties: true }
+
+    WorldBookTestRequest:
+      type: object
+      required: [sample_text]
+      properties:
+        sample_text:
+          type: string
+          description: 用于模拟"最近对话"的样例文本
+        scan_depth: { type: integer, nullable: true, description: 覆盖世界书默认 }
+
+    WorldBookTestResult:
+      type: object
+      properties:
+        entries:
+          type: array
+          items:
+            type: object
+            properties:
+              entry_id: { type: string }
+              comment: { type: string }
+              matched: { type: boolean }
+              match_type:
+                type: string
+                enum: [constant, keyword, regex, vector, none]
+              matched_key: { type: string, nullable: true }
+              in_budget: { type: boolean }
+              token_count: { type: integer }
+              final_position: { type: string, nullable: true }
+        total_tokens: { type: integer }
+        token_budget: { type: integer }
+
+    PresetInput:
+      type: object
+      required: [spec, spec_version, data]
+      properties:
+        spec: { type: string, enum: [rpg_preset] }
+        spec_version: { type: string, example: "1.0" }
+        data: { $ref: '#/components/schemas/PresetData' }
+        extensions: { type: object, additionalProperties: true }
+
+    Preset:
+      allOf:
+        - $ref: '#/components/schemas/PresetInput'
+        - type: object
+          properties:
+            id: { type: string, format: uuid }
+            created_at: { type: string, format: date-time }
+            updated_at: { type: string, format: date-time }
+
+    PresetData:
+      type: object
+      required: [name, prompt_template]
+      properties:
+        name: { type: string }
+        description: { type: string, default: "" }
+        sampling:
+          type: object
+          properties:
+            temperature: { type: number, default: 0.8 }
+            top_p: { type: number, default: 0.95 }
+            top_k: { type: integer, default: 40 }
+            min_p: { type: number, default: 0.05 }
+            repetition_penalty: { type: number, default: 1.1 }
+            frequency_penalty: { type: number, default: 0 }
+            presence_penalty: { type: number, default: 0 }
+            max_tokens: { type: integer, default: 1024 }
+            seed: { type: integer, default: -1 }
+            stop:
+              type: array
+              items: { type: string }
+              default: []
+        prompt_template:
+          type: object
+          required: [system]
+          properties:
+            system: { type: string }
+            instruction: { type: string, default: "" }
+            chat_separator: { type: string, default: "\n" }
+            placeholders: { type: object, additionalProperties: { type: string } }
+        context_budget:
+          type: object
+          properties:
+            max_context_tokens: { type: integer, default: 8192 }
+            reserve_for_output: { type: integer, default: 1024 }
+            character_pct: { type: integer, default: 15 }
+            world_info_pct: { type: integer, default: 25 }
+            memory_pct: { type: integer, default: 15 }
+            vector_recall_pct: { type: integer, default: 5 }
+            history_pct: { type: integer, default: 35 }
+        memory:
+          type: object
+          properties:
+            summarize_every_n_turns: { type: integer, default: 10 }
+            summary_trigger_ratio: { type: number, default: 0.8 }
+            vector_top_k: { type: integer, default: 5 }
+            extract_facts: { type: boolean, default: true }
+        image_hook:
+          type: object
+          properties:
+            enabled: { type: boolean, default: false }
+            mode:
+              type: string
+              enum: [manual, every_n_turns, on_scene_change]
+              default: manual
+            every_n_turns: { type: integer, default: 10 }
+            workflow_template_id: { type: string, nullable: true }
+        extensions: { type: object, additionalProperties: true }
+
+    SessionCreateRequest:
+      type: object
+      required: [character_card_id, preset_id]
+      properties:
+        character_card_id: { type: string, format: uuid }
+        preset_id: { type: string, format: uuid }
+        worldbook_ids:
+          type: array
+          items: { type: string, format: uuid }
+          default: []
+        user_persona:
+          type: object
+          properties:
+            name: { type: string, default: "Player" }
+            description: { type: string, default: "" }
+        greeting_index:
+          type: integer
+          default: -1
+          description: -1 使用 first_mes，>=0 使用 alternate_greetings 第 N 项
+
+    SessionUpdateRequest:
+      type: object
+      properties:
+        preset_id: { type: string, format: uuid }
+        worldbook_ids:
+          type: array
+          items: { type: string, format: uuid }
+        user_persona: { type: object }
+        status: { type: string, enum: [active, paused, archived] }
+        scene: { $ref: '#/components/schemas/Scene' }
+
+    Session:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        spec: { type: string, example: rpg_session }
+        spec_version: { type: string, example: "1.0" }
+        character_card_id: { type: string, format: uuid }
+        preset_id: { type: string, format: uuid }
+        worldbook_ids:
+          type: array
+          items: { type: string, format: uuid }
+        user_persona: { type: object }
+        status: { type: string, enum: [active, paused, archived] }
+        state_machine: { $ref: '#/components/schemas/StateMachine' }
+        scene: { $ref: '#/components/schemas/Scene' }
+        messages:
+          type: array
+          items: { $ref: '#/components/schemas/Message' }
+        triggered_entries: { type: object, additionalProperties: true }
+        memory: { $ref: '#/components/schemas/Memory' }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    StateMachine:
+      type: object
+      properties:
+        current:
+          type: string
+          enum: [idle, assembling, generating, post_processing, interrupted, error]
+        turn: { type: integer }
+        version: { type: integer, description: 乐观锁 }
+        last_error:
+          type: object
+          nullable: true
+          properties:
+            code: { type: integer }
+            message: { type: string }
+            at: { type: string, format: date-time }
+
+    Scene:
+      type: object
+      properties:
+        location: { type: string, default: "" }
+        time: { type: string, default: "" }
+        mood: { type: string, default: "" }
+        summary: { type: string, default: "" }
+        bg_asset_id: { type: string, nullable: true }
+
+    MessageInput:
+      type: object
+      required: [role, content]
+      properties:
+        role: { type: string, enum: [user, assistant, system] }
+        content: { type: string }
+
+    Message:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        role: { type: string, enum: [user, assistant, system, tool] }
+        content: { type: string }
+        status: { type: string, enum: [streaming, complete, incomplete] }
+        token_count: { type: integer }
+        created_at: { type: string, format: date-time }
+        meta:
+          type: object
+          properties:
+            swipe_index: { type: integer }
+            swipe_group_id: { type: string }
+            greeting_index: { type: integer, nullable: true }
+            triggered_entry_ids:
+              type: array
+              items: { type: string }
+            image_asset_id: { type: string, nullable: true }
+            parent_id: { type: string, nullable: true }
+
+    Memory:
+      type: object
+      properties:
+        rolling_summary: { type: string, default: "" }
+        summary_upto_message_id: { type: string, nullable: true }
+        facts:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              value: { type: string }
+              confidence: { type: number }
+              source_message_id: { type: string, nullable: true }
+              updated_at: { type: string, format: date-time }
+
+    StreamRequest:
+      type: object
+      required: [input]
+      properties:
+        input: { type: string, description: 玩家本轮输入 }
+        idempotency_key: { type: string, description: 幂等键，防重复提交 }
+        overrides:
+          type: object
+          description: 临时覆盖采样参数（不落库）
+          additionalProperties: true
+
+    RegenerateRequest:
+      type: object
+      properties:
+        message_id:
+          type: string
+          format: uuid
+          description: 要重新生成的消息位置；缺省为最后一条 assistant
+        overrides: { type: object, additionalProperties: true }
+
+    ContextSnapshot:
+      type: object
+      properties:
+        prompt_text: { type: string }
+        segments:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+                enum: [system, character, world_info_before, memory, vector_recall, examples, history, world_info_at_depth, post_history]
+              token_count: { type: integer }
+        world_info_trace:
+          type: array
+          items: { $ref: '#/components/schemas/WorldBookTestResult/properties/entries/items' }
+        budget:
+          type: object
+          properties:
+            max_context_tokens: { type: integer }
+            used_tokens: { type: integer }
+            reserve_for_output: { type: integer }
+        estimated_prompt_tokens: { type: integer }
+        actual_prompt_tokens: { type: integer, nullable: true }
+        assembled_at: { type: string, format: date-time }
+
+    ImageJobCreateRequest:
+      type: object
+      required: [prompt]
+      properties:
+        prompt: { type: string }
+        negative_prompt: { type: string, default: "" }
+        width: { type: integer, default: 1024 }
+        height: { type: integer, default: 1024 }
+        seed: { type: integer, default: -1 }
+        steps: { type: integer, nullable: true }
+        workflow_template_id: { type: string, nullable: true }
+        card_id: { type: string, nullable: true, description: 归档目标角色；缺省时由 session_id 推导 }
+        session_id: { type: string, nullable: true, description: 归档目标会话；用于推导 card_id 与回写消息 }
+        message_id: { type: string, nullable: true }
+
+    ImageJob:
+      type: object
+      description: >
+        出图任务。完成（done）时**自动归档**：服务端创建一个 kind=generated 的 Asset
+        （card_id 取自请求或由 session 推导，session_id/message_id 回填），
+        并把新资产 id 写入 asset_id；若指定了 card_id，同时登记进该角色图集。
+        前端据 asset_id 调 GET /assets/{id}/content 取图，无需自行拼装归档。
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [queued, running, done, failed] }
+        provider: { type: string, example: comfyui }
+        prompt_id: { type: string, nullable: true, description: ComfyUI prompt_id }
+        card_id: { type: string, nullable: true }
+        session_id: { type: string, nullable: true }
+        message_id: { type: string, nullable: true }
+        asset_id:
+          type: string
+          nullable: true
+          description: 归档后的资产 id（status=done 时非空）
+        archived: { type: boolean, description: 是否已归档进资产库 }
+        error: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    Asset:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        kind: { type: string, enum: [avatar, gallery, background, generated] }
+        filename: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer }
+        card_id:
+          type: string
+          nullable: true
+          description: 归属角色（"以角色为中心"的资产库主键）
+        session_id:
+          type: string
+          nullable: true
+          description: 归属会话（出图/快照来源）
+        message_id:
+          type: string
+          nullable: true
+          description: 关联消息（出图对话位置）
+        tags:
+          type: array
+          items: { type: string }
+          default: []
+        meta:
+          type: object
+          additionalProperties: true
+          description: 生成图额外信息（prompt/seed/workflow/width/height 等）
+        created_at: { type: string, format: date-time }
+
+    ImportResult:
+      type: object
+      properties:
+        source_format: { type: string, enum: [st_v1, st_v2, st_v3, native] }
+        object_id: { type: string, format: uuid }
+        warnings:
+          type: array
+          items: { type: string }
+        preserved_unknown_keys:
+          type: array
+          items: { type: string }
+
+    ExportBundleRequest:
+      type: object
+      properties:
+        card_ids:
+          type: array
+          items: { type: string, format: uuid }
+        worldbook_ids:
+          type: array
+          items: { type: string, format: uuid }
+        preset_ids:
+          type: array
+          items: { type: string, format: uuid }
+        include_assets: { type: boolean, default: true }
+
+    SearchQuery:
+      type: object
+      description: >
+        统一的列表检索/筛选/分页参数契约（P0）。所有 list 端点复用同一套命名与语义，
+        由 components.parameters 中的 Q / Tags / Sort / Order / Status / Page / Limit 组合而成。
+        实现走 SearchProvider（pg_trgm + ILIKE，见 ADR-005）。
+      properties:
+        q:
+          type: string
+          maxLength: 200
+          description: 关键词，pg_trgm 子串/模糊匹配（中文可用）
+        tags:
+          type: array
+          items: { type: string }
+          description: 标签多值（AND）
+        sort:
+          type: string
+          enum: [created_at, updated_at, name, last_message_at]
+          default: updated_at
+        order:
+          type: string
+          enum: [asc, desc]
+          default: desc
+        status:
+          type: string
+          enum: [active, paused, archived]
+          description: 仅会话列表
+        page:
+          type: integer
+          minimum: 1
+          default: 1
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+
+    Paged:
+      type: object
+      properties:
+        total: { type: integer }
+        page: { type: integer }
+        limit: { type: integer }
+        hasMore: { type: boolean }
+
+    PagedCards:
+      allOf:
+        - $ref: '#/components/schemas/Paged'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Card' }
+
+    PagedWorldBooks:
+      allOf:
+        - $ref: '#/components/schemas/Paged'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/WorldBook' }
+
+    PagedPresets:
+      allOf:
+        - $ref: '#/components/schemas/Paged'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Preset' }
+
+    PagedSessions:
+      allOf:
+        - $ref: '#/components/schemas/Paged'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Session' }
+
+    PagedAssets:
+      allOf:
+        - $ref: '#/components/schemas/Paged'
+        - type: object
+          properties:
+            items:
+              type: array
+              items: { $ref: '#/components/schemas/Asset' }

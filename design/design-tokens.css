@@ -1,0 +1,373 @@
+/* =============================================================================
+ * AI 角色扮演平台 · Design Tokens (基础层)
+ * -----------------------------------------------------------------------------
+ * 分层架构（严禁跳层引用）：
+ *   primitive  →  只在此文件出现 hex / 数值，是唯一色值来源
+ *   semantic   →  语义别名，组件与页面只允许引用这一层
+ *   density    →  仅覆盖密度相关 Token（studio / session），不引入第二套视觉
+ *
+ * 使用方式：
+ *   :root                     → 深色主题（默认）
+ *   [data-theme="light"]      → 浅色主题
+ *   [data-density="session"]  → 运行端沉浸密度
+ *
+ * 约束：
+ *   - 禁止在组件/页面中直接引用 primitive 变量或写死 hex（#fff / #000 除外）
+ *   - 缓动曲线不含任何弹跳/弹性曲线
+ *   - 每屏 accent 可见使用 ≤ 2 处
+ * ========================================================================== */
+
+/* ---------------------------------------------------------------------------
+ * 1. PRIMITIVE — 原始色阶（唯一色值来源）
+ * ------------------------------------------------------------------------ */
+:root {
+  /* Neutral (cool graphite) */
+  --p-neutral-0:    #FFFFFF;
+  --p-neutral-25:   #FAFBFC;
+  --p-neutral-50:   #F4F5F6;
+  --p-neutral-100:  #EAECEE;
+  --p-neutral-150:  #E0E2E6;
+  --p-neutral-200:  #D2D5DA;
+  --p-neutral-300:  #B6BBC3;
+  --p-neutral-400:  #8E949D;
+  --p-neutral-500:  #676D76;
+  --p-neutral-600:  #4A5058;
+  --p-neutral-650:  #3A3F46;
+  --p-neutral-700:  #2E323A;
+  --p-neutral-750:  #24272D;
+  --p-neutral-800:  #1C1F24;
+  --p-neutral-850:  #16181C;
+  --p-neutral-900:  #101215;
+  --p-neutral-950:  #0A0B0D;
+  --p-neutral-1000: #000000;
+
+  /* Amber — 品牌 / 舞台暖光 */
+  --p-amber-50:  #FBF4E4;
+  --p-amber-100: #F6E7C3;
+  --p-amber-200: #EDD08C;
+  --p-amber-300: #E7BE5F;
+  --p-amber-400: #E3AE3E;
+  --p-amber-500: #CE9A2E;
+  --p-amber-600: #A87A1E;
+  --p-amber-700: #9C6F19;
+  --p-amber-800: #7A5513;
+  --p-amber-900: #4A3408;
+
+  /* Semantic hues */
+  --p-green-400:  #57BE84;  --p-green-600:  #1C8C4E;  --p-green-700:  #146B3B;
+  --p-orange-400: #E2803A;  --p-orange-600: #A65A18;  --p-orange-700: #814410;
+  --p-red-400:    #EC6A61;  --p-red-600:    #C43B34;  --p-red-700:    #9E2C27;
+  --p-blue-400:   #6BA8DC;  --p-blue-600:   #2C6FB0;  --p-blue-700:   #215589;
+
+  /* Alpha / overlays */
+  --p-white-04: rgba(255,255,255,0.04);
+  --p-white-05: rgba(255,255,255,0.05);
+  --p-white-09: rgba(255,255,255,0.09);
+  --p-white-16: rgba(255,255,255,0.16);
+  --p-black-04: rgba(10,11,13,0.04);
+  --p-black-08: rgba(10,11,13,0.08);
+  --p-black-14: rgba(10,11,13,0.14);
+  --p-accent-wash-dark:  rgba(227,174,62,0.14);
+  --p-accent-wash-light: rgba(156,111,25,0.18);
+  --p-accent-ring-dark:  rgba(227,174,62,0.42);
+  --p-accent-ring-light: rgba(156,111,25,0.35);
+  --p-scrim-dark:  rgba(6,7,9,0.72);
+  --p-scrim-light: rgba(16,18,21,0.42);
+}
+
+/* ---------------------------------------------------------------------------
+ * 2. SEMANTIC — 深色主题（默认）
+ * ------------------------------------------------------------------------ */
+:root {
+  /* Surface */
+  --color-bg:             var(--p-neutral-900);
+  --color-surface:        var(--p-neutral-850);
+  --color-surface-raised: var(--p-neutral-800);
+  --color-surface-sunken: var(--p-neutral-950);
+  --color-surface-warm:   var(--p-white-04);
+  --color-surface-recess: var(--p-neutral-950);
+  --color-reading-surface: #14161A;
+  --color-scrim:          var(--p-scrim-dark);
+
+  /* Foreground */
+  --color-fg:   #E9EBEE;
+  --color-fg-2: #C0C5CC;
+  --color-muted: var(--p-neutral-400);
+  --color-meta:  #5E646C;
+
+  /* Border */
+  --color-border:        var(--p-white-09);
+  --color-border-strong: var(--p-white-16);
+  --color-border-soft:   var(--p-white-05);
+
+  /* Accent — 每屏可见使用 ≤ 2 处 */
+  --color-accent:        var(--p-amber-400);
+  --color-accent-hover:  #ECBE5A;
+  --color-accent-active: var(--p-amber-500);
+  --color-accent-on:     var(--p-neutral-950);
+  --color-accent-subtle: var(--p-accent-wash-dark);
+  --color-accent-ring:   var(--p-accent-ring-dark);
+
+  /* Semantic states */
+  --color-success: var(--p-green-400);
+  --color-warn:    var(--p-orange-400);
+  --color-danger:  var(--p-red-400);
+  --color-info:    var(--p-blue-400);
+  --color-success-subtle: rgba(87,190,132,0.14);
+  --color-warn-subtle:    rgba(226,128,58,0.14);
+  --color-danger-subtle:  rgba(236,106,97,0.14);
+
+  /* Focus */
+  --focus-ring-color: var(--p-accent-ring-dark);
+  --focus-ring: 0 0 0 3px var(--focus-ring-color);
+
+  /* Elevation — 深色主题用描边 + 微光表达层次，慎用重阴影 */
+  --elev-flat:   none;
+  --elev-ring:   0 0 0 1px var(--color-border);
+  --elev-raised: 0 4px 12px rgba(0,0,0,0.32);
+  --elev-overlay: 0 12px 32px rgba(0,0,0,0.44);
+  --elev-modal:  0 20px 56px rgba(0,0,0,0.56);
+}
+
+/* ---------------------------------------------------------------------------
+ * 3. SEMANTIC — 浅色主题覆盖
+ * ------------------------------------------------------------------------ */
+[data-theme="light"] {
+  --color-bg:             var(--p-neutral-50);
+  --color-surface:        var(--p-neutral-0);
+  --color-surface-raised: var(--p-neutral-0);
+  --color-surface-sunken: var(--p-neutral-100);
+  --color-surface-warm:   var(--p-neutral-25);
+  --color-surface-recess: var(--p-neutral-100);
+  --color-reading-surface: var(--p-neutral-25);
+  --color-scrim:          var(--p-scrim-light);
+
+  --color-fg:   var(--p-neutral-800);
+  --color-fg-2: var(--p-neutral-600);
+  --color-muted: var(--p-neutral-500);
+  --color-meta:  var(--p-neutral-400);
+
+  --color-border:        var(--p-neutral-200);
+  --color-border-strong: var(--p-neutral-300);
+  --color-border-soft:   var(--p-neutral-100);
+
+  --color-accent:        var(--p-amber-700);
+  --color-accent-hover:  var(--p-amber-800);
+  --color-accent-active: #6B4A0F;
+  --color-accent-on:     var(--p-neutral-0);
+  --color-accent-subtle: var(--p-accent-wash-light);
+  --color-accent-ring:   var(--p-accent-ring-light);
+
+  --color-success: var(--p-green-600);
+  --color-warn:    var(--p-orange-600);
+  --color-danger:  var(--p-red-600);
+  --color-info:    var(--p-blue-600);
+  --color-success-subtle: rgba(28,140,78,0.12);
+  --color-warn-subtle:    rgba(166,90,24,0.12);
+  --color-danger-subtle:  rgba(196,59,52,0.12);
+
+  --focus-ring-color: var(--p-accent-ring-light);
+  --focus-ring: 0 0 0 3px var(--focus-ring-color);
+
+  --elev-flat:   none;
+  --elev-ring:   0 0 0 1px var(--color-border);
+  --elev-raised: 0 1px 2px rgba(10,11,13,0.05), 0 4px 10px rgba(10,11,13,0.06);
+  --elev-overlay: 0 12px 32px rgba(10,11,13,0.14);
+  --elev-modal:  0 20px 56px rgba(10,11,13,0.20);
+}
+
+/* ---------------------------------------------------------------------------
+ * 4. TYPOGRAPHY
+ * ------------------------------------------------------------------------ */
+:root {
+  --font-sans:  "Inter", "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  --font-serif: "Noto Serif SC", "Source Han Serif SC", "Songti SC", "SimSun", "Georgia", serif;
+  --font-mono:  "JetBrains Mono", "Fira Code", "SFMono-Regular", Consolas, monospace;
+
+  --text-xs:   0.75rem;   /* 12px */
+  --text-sm:   0.8125rem; /* 13px */
+  --text-base: 0.875rem;  /* 14px — 创作端 UI 默认 */
+  --text-md:   0.9375rem; /* 15px */
+  --text-lg:   1rem;      /* 16px */
+  --text-xl:   1.125rem;  /* 18px */
+  --text-2xl:  1.375rem;  /* 22px */
+  --text-3xl:  1.75rem;   /* 28px */
+  --text-4xl:  2.25rem;   /* 36px */
+
+  --weight-regular:  400;
+  --weight-medium:   500;
+  --weight-semibold: 600;
+  --weight-bold:     700;
+
+  --leading-tight:   1.25;
+  --leading-snug:    1.4;
+  --leading-normal:  1.5;
+  --leading-relaxed: 1.6;   /* 中文正文 */
+  --leading-reading: 1.75;  /* 会话叙事 */
+
+  --tracking-tighter: -0.02em;
+  --tracking-tight:   -0.01em;
+  --tracking-normal:  0;
+  --tracking-wide:    0.02em;
+  --tracking-wider:   0.06em;  /* 全大写英文标签 */
+}
+
+/* ---------------------------------------------------------------------------
+ * 5. SPACING / RADIUS / LAYOUT
+ * ------------------------------------------------------------------------ */
+:root {
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+  --space-20: 80px;
+
+  --radius-none: 0;
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
+  --radius-pill: 9999px;
+
+  --container-max: 1440px;
+  --reading-measure: 68ch;
+  --rail-width: 64px;
+  --panel-width: 300px;
+  --drawer-width: 380px;
+
+  /* Icon — Lucide（全项目唯一图标库） */
+  --icon-size-inline: 16px;      /* w-4 h-4 */
+  --icon-size-button: 20px;      /* w-5 h-5 */
+  --icon-size-standalone: 24px;  /* w-6 h-6 */
+  --icon-stroke-width: 2;        /* 与 Lucide 默认一致，全项目统一 */
+}
+
+/* ---------------------------------------------------------------------------
+ * 6. MOTION（禁止弹跳/弹性曲线）
+ * ------------------------------------------------------------------------ */
+:root {
+  --dur-instant:  80ms;
+  --dur-fast:     120ms;
+  --dur-base:     160ms;
+  --dur-moderate: 220ms;
+  --dur-slow:     320ms;
+
+  --ease-standard:   cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-accelerate: cubic-bezier(0.4, 0, 1, 1);
+  --ease-linear:     linear;
+}
+
+/* ---------------------------------------------------------------------------
+ * 7. Z-INDEX
+ * ------------------------------------------------------------------------ */
+:root {
+  --z-base: 0;
+  --z-content: 1;
+  --z-raised: 10;
+  --z-sticky: 100;
+  --z-dock: 200;
+  --z-backdrop: 900;
+  --z-dropdown: 1000;
+  --z-overlay: 1100;
+  --z-drawer: 1150;
+  --z-modal: 1200;
+  --z-popover: 1300;
+  --z-toast: 1400;
+  --z-tooltip: 1500;
+}
+
+/* ---------------------------------------------------------------------------
+ * 8. DENSITY — 同一主题的两种照明（不引入第二套视觉系统）
+ * ------------------------------------------------------------------------ */
+
+/* 创作端（默认）：高密度工具感 */
+:root {
+  --density-font-size: var(--text-base);
+  --density-line-height: var(--leading-relaxed);
+  --density-row-height: 32px;
+  --density-control-height: 32px;
+  --density-section-gap: var(--space-6);
+}
+
+/* 运行端：沉浸叙事感 —— 仅覆盖密度相关 Token */
+[data-density="session"] {
+  --density-font-size: var(--text-lg);
+  --density-line-height: var(--leading-reading);
+  --density-row-height: auto;
+  --density-control-height: 36px;
+  --density-section-gap: var(--space-8);
+}
+
+/* 会话正文专用排版（衬线 + 中文长文行高 + 行宽约束）
+ * 用法：<p class="narrative"> 或 <div data-density="session"> 内的正文容器
+ * 注意：serif 仅用于叙事正文，禁止用于任何 UI 控件与标签 */
+.narrative {
+  font-family: var(--font-serif);
+  font-size: var(--text-md);
+  line-height: var(--leading-reading);
+  letter-spacing: var(--tracking-normal);
+  color: var(--color-fg);
+  max-width: var(--reading-measure);
+  text-wrap: pretty;
+}
+
+/* 技术信息（Token 计数 / 参数数值）——等宽 + 等宽数字 */
+.tech-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--tracking-wide);
+  color: var(--color-meta);
+}
+
+/* 全大写英文标签（必须 ≥0.06em 字距） */
+.label-caps {
+  font-size: var(--text-xs);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-wider);
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* ---------------------------------------------------------------------------
+ * 9. 全局可访问性基线
+ * ------------------------------------------------------------------------ */
+:root {
+  --focus-visible-outline: 2px solid var(--color-accent);
+  --focus-visible-offset: 2px;
+}
+
+/* 键盘可达：禁止移除 focus ring */
+:where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: var(--focus-visible-outline);
+  outline-offset: var(--focus-visible-offset);
+}
+
+/* 无障碍：尊重减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-instant: 0ms;
+    --dur-fast: 0ms;
+    --dur-base: 0ms;
+    --dur-moderate: 0ms;
+    --dur-slow: 0ms;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

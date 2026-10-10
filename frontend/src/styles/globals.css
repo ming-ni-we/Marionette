@@ -1,0 +1,410 @@
+/* =============================================================================
+ * 提线 (Marionette) · globals.css
+ * -----------------------------------------------------------------------------
+ * 设计唯一真源：`design/design-tokens.json` → `design/design-tokens.css`
+ *   本目录 `tokens.css` 是 `design/design-tokens.css` 的**逐字副本**（唯一真源，
+ *   禁止在组件/页面手抄变量值）。任何 token 变更必须改 design/ 源文件后同步。
+ *
+ * 本文件职责：把三层 Token（primitive → semantic → density）映射为
+ *   Tailwind CSS v4 `@theme` 语义工具类 + shadcn/ui CSS 变量别名。
+ *
+ * 轴：
+ *   主题  [data-theme="dark" | "light"]      —— 深色默认
+ *   密度  [data-density="studio" | "session"] —— 同一套主题的两种照明
+ * ========================================================================== */
+
+@import 'tailwindcss';
+@import './tokens.css';
+
+/* ---------------------------------------------------------------------------
+ * Tailwind v4 主题映射
+ * `@theme inline`：工具类直接引用 tokens.css 中已定义的 semantic 变量值，
+ * 不重复声明 CSS 变量（避免与 primitive/semantic 层形成第二份真源）。
+ * 结果：bg-surface / text-fg-2 / border-border / text-muted / bg-accent …
+ * ------------------------------------------------------------------------ */
+@theme inline {
+  /* Surface */
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-surface-sunken: var(--color-surface-sunken);
+  --color-surface-warm: var(--color-surface-warm);
+  --color-surface-recess: var(--color-surface-recess);
+  --color-reading-surface: var(--color-reading-surface);
+  --color-scrim: var(--color-scrim);
+
+  /* Foreground */
+  --color-fg: var(--color-fg);
+  --color-fg-2: var(--color-fg-2);
+  --color-muted: var(--color-muted);
+  --color-meta: var(--color-meta);
+
+  /* Border */
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
+  --color-border-soft: var(--color-border-soft);
+
+  /* Accent（每屏可见使用 ≤ 2 处） */
+  --color-accent: var(--color-accent);
+  --color-accent-hover: var(--color-accent-hover);
+  --color-accent-active: var(--color-accent-active);
+  --color-accent-on: var(--color-accent-on);
+  --color-accent-subtle: var(--color-accent-subtle);
+  --color-accent-ring: var(--color-accent-ring);
+
+  /* Semantic states */
+  --color-success: var(--color-success);
+  --color-warn: var(--color-warn);
+  --color-danger: var(--color-danger);
+  --color-info: var(--color-info);
+  --color-success-subtle: var(--color-success-subtle);
+  --color-warn-subtle: var(--color-warn-subtle);
+  --color-danger-subtle: var(--color-danger-subtle);
+
+  /* Typography families */
+  --font-sans: var(--font-sans);
+  --font-serif: var(--font-serif);
+  --font-mono: var(--font-mono);
+
+  /* Typography scale */
+  --text-xs: var(--text-xs);
+  --text-sm: var(--text-sm);
+  --text-base: var(--text-base);
+  --text-md: var(--text-md);
+  --text-lg: var(--text-lg);
+  --text-xl: var(--text-xl);
+  --text-2xl: var(--text-2xl);
+  --text-3xl: var(--text-3xl);
+  --text-4xl: var(--text-4xl);
+
+  /* Weight */
+  --weight-regular: var(--weight-regular);
+  --weight-medium: var(--weight-medium);
+  --weight-semibold: var(--weight-semibold);
+
+  /* Line height */
+  --leading-tight: var(--leading-tight);
+  --leading-snug: var(--leading-snug);
+  --leading-normal: var(--leading-normal);
+  --leading-relaxed: var(--leading-relaxed);
+  --leading-reading: var(--leading-reading);
+
+  /* Tracking */
+  --tracking-tighter: var(--tracking-tighter);
+  --tracking-tight: var(--tracking-tight);
+  --tracking-normal: var(--tracking-normal);
+  --tracking-wide: var(--tracking-wide);
+  --tracking-wider: var(--tracking-wider);
+
+  /* Spacing — 4px 基准网格（p-1=4px … p-6=24px）；对齐 --space-* */
+  --spacing: 4px;
+
+  /* Radius */
+  --radius-xs: var(--radius-xs);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-xl: var(--radius-xl);
+  --radius-2xl: var(--radius-2xl);
+
+  /* Motion — 禁止弹跳/弹性曲线 */
+  --ease-standard: var(--ease-standard);
+  --ease-emphasized: var(--ease-emphasized);
+  --ease-accelerate: var(--ease-accelerate);
+}
+
+/* ---------------------------------------------------------------------------
+ * shadcn/ui 兼容变量别名（映射见 docs/03-uiux.md §5.1）
+ * 供需要 shadcn 既定变量名的第三方组件使用；本项目自研组件优先用上方语义工具类。
+ * ------------------------------------------------------------------------ */
+:root {
+  --background: var(--color-bg);
+  --foreground: var(--color-fg);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-fg);
+  --popover: var(--color-surface-raised);
+  --popover-foreground: var(--color-fg);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--color-accent-on);
+  --secondary: var(--color-surface-warm);
+  --secondary-foreground: var(--color-fg-2);
+  --muted: var(--color-surface-warm);
+  --muted-foreground: var(--color-muted);
+  --accent: var(--color-surface-warm);
+  --accent-foreground: var(--color-fg);
+  --destructive: var(--color-danger);
+  --destructive-foreground: var(--color-accent-on);
+  --input: var(--color-border);
+  --ring: var(--color-accent-ring);
+  --radius: 8px;
+}
+
+/* ---------------------------------------------------------------------------
+ * Base — 全局基线
+ * ------------------------------------------------------------------------ */
+@layer base {
+  * {
+    border-color: var(--color-border);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+
+  html[data-theme='light'] {
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    /* 密度：同一主题的两档照明，仅字号/行高变化 */
+    font-size: var(--density-font-size);
+    line-height: var(--density-line-height);
+    font-weight: var(--weight-regular);
+    letter-spacing: var(--tracking-normal);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 中文正文禁止全局字距（会破坏汉字结构） */
+  h1,
+  h2,
+  h3,
+  h4 {
+    margin: 0;
+    font-weight: var(--weight-semibold);
+    line-height: var(--leading-tight);
+    letter-spacing: var(--tracking-tight);
+  }
+
+  p {
+    margin: 0;
+  }
+
+  /* 等宽数字：Token 计数 / 参数对齐，不随数字变化重排 */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+
+  ::selection {
+    background-color: var(--color-accent-subtle);
+    color: var(--color-fg);
+  }
+
+  /* 滚动条——低干扰 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border-strong) transparent;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--color-border-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  :disabled {
+    cursor: not-allowed;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+ * Layered z-index（语义层级，禁止随意 z-50）
+ * ------------------------------------------------------------------------ */
+.z-base {
+  z-index: var(--z-base);
+}
+.z-content {
+  z-index: var(--z-content);
+}
+.z-raised {
+  z-index: var(--z-raised);
+}
+.z-sticky {
+  z-index: var(--z-sticky);
+}
+.z-dock {
+  z-index: var(--z-dock);
+}
+.z-backdrop {
+  z-index: var(--z-backdrop);
+}
+.z-dropdown {
+  z-index: var(--z-dropdown);
+}
+.z-overlay {
+  z-index: var(--z-overlay);
+}
+.z-drawer {
+  z-index: var(--z-drawer);
+}
+.z-modal {
+  z-index: var(--z-modal);
+}
+.z-popover {
+  z-index: var(--z-popover);
+}
+.z-toast {
+  z-index: var(--z-toast);
+}
+.z-tooltip {
+  z-index: var(--z-tooltip);
+}
+
+/* ---------------------------------------------------------------------------
+ * 层级工具（宽度约束 / 阅读列）
+ * ------------------------------------------------------------------------ */
+.container-app {
+  max-width: var(--container-max);
+}
+
+.reading-column {
+  width: 100%;
+  max-width: var(--reading-measure);
+}
+
+.rail {
+  width: var(--rail-width);
+}
+
+.panel {
+  width: var(--panel-width);
+}
+
+.drawer {
+  width: var(--drawer-width);
+}
+
+/* 语义标题层级：非默认 Tailwind 尺度，走字重 + 亮度而非纯字号堆叠 */
+.title-page {
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-snug);
+}
+
+.title-section {
+  font-size: var(--text-md);
+  font-weight: var(--weight-medium);
+  letter-spacing: var(--tracking-tight);
+  line-height: var(--leading-snug);
+}
+
+/* ---------------------------------------------------------------------------
+ * 动效：只动 transform / opacity / color；缓动无弹跳
+ * ------------------------------------------------------------------------ */
+.motion-standard {
+  transition-property: background-color, border-color, color, opacity, transform;
+  transition-duration: var(--dur-base);
+  transition-timing-function: var(--ease-standard);
+}
+
+.motion-fast {
+  transition-property: background-color, border-color, color, opacity, transform;
+  transition-duration: var(--dur-fast);
+  transition-timing-function: var(--ease-standard);
+}
+
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up var(--dur-slow) var(--ease-emphasized) both;
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in var(--dur-moderate) var(--ease-standard) both;
+}
+
+@keyframes drawer-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+.animate-drawer-in {
+  animation: drawer-in var(--dur-moderate) var(--ease-emphasized) both;
+}
+
+/* 流式生成尾随光标——仅 opacity 动画，不触发布局抖动 */
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  55%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.stream-caret::after {
+  content: '';
+  display: inline-block;
+  width: 0.5ch;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background-color: var(--color-accent);
+  animation: caret-blink 1.1s steps(1, end) infinite;
+}
+
+/* 旋转加载——reduced-motion 下由 tokens.css 的全局规则降速为静止 */
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 1s linear infinite;
+}
+
+/* 空状态图示容器——无装饰性毛玻璃/发光 */
+.empty-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface-warm);
+  color: var(--color-muted);
+}

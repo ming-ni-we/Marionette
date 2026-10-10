@@ -1,0 +1,350 @@
+{
+  "$schema": "https://design-tokens.org/schema.json",
+  "meta": {
+    "name": "AI Roleplay Studio - Design Tokens",
+    "nameZh": "AI 角色扮演平台 · 设计 Token",
+    "version": "1.0.0",
+    "layer": "base",
+    "scope": "primitive + semantic（基础层，不含页面级 Token）",
+    "register": "product",
+    "platform": "web",
+    "defaultTheme": "dark",
+    "themes": ["dark", "light"],
+    "stack": {
+      "framework": "React 19.1 + Vite 7 + TypeScript 5.8 (SPA)",
+      "ui": "shadcn/ui (Radix primitives)",
+      "css": "Tailwind CSS v4.1 (@theme)",
+      "state": "Zustand 5 (UI) / TanStack Query 5 (server cache)",
+      "icons": "Lucide (lucide-react) — 全项目唯一图标库"
+    },
+    "densities": {
+      "studio": "创作端 · 高密度工具感",
+      "session": "运行端 · 沉浸叙事感"
+    },
+    "axes": {
+      "designVariance": 5,
+      "motionIntensity": 4,
+      "visualDensity": "dual: studio=7 / session=2"
+    },
+    "notes": [
+      "颜色分两层：primitive（原始色阶，唯一允许出现 hex 的地方）→ semantic（语义别名）。",
+      "任何组件/页面只允许引用 semantic 层，禁止直接引用 primitive 色值，禁止写死 hex。",
+      "默认深色主题，light 通过 data-theme=\"light\" 覆盖 semantic 同名 Token。",
+      "density.session 仅覆盖密度相关的排版/层次 Token，不引入第二套视觉系统。",
+      "缓动曲线不含任何弹跳/弹性曲线。"
+    ]
+  },
+
+  "primitive": {
+    "neutral": {
+      "0": "#FFFFFF",
+      "25": "#FAFBFC",
+      "50": "#F4F5F6",
+      "100": "#EAECEE",
+      "150": "#E0E2E6",
+      "200": "#D2D5DA",
+      "300": "#B6BBC3",
+      "400": "#8E949D",
+      "500": "#676D76",
+      "600": "#4A5058",
+      "650": "#3A3F46",
+      "700": "#2E323A",
+      "750": "#24272D",
+      "800": "#1C1F24",
+      "850": "#16181C",
+      "900": "#101215",
+      "950": "#0A0B0D",
+      "1000": "#000000"
+    },
+    "amber": {
+      "50": "#FBF4E4",
+      "100": "#F6E7C3",
+      "200": "#EDD08C",
+      "300": "#E7BE5F",
+      "400": "#E3AE3E",
+      "500": "#CE9A2E",
+      "600": "#A87A1E",
+      "700": "#9C6F19",
+      "800": "#7A5513",
+      "900": "#4A3408"
+    },
+    "green": { "400": "#57BE84", "600": "#1C8C4E", "700": "#146B3B" },
+    "orange": { "400": "#E2803A", "600": "#A65A18", "700": "#814410" },
+    "red": { "400": "#EC6A61", "600": "#C43B34", "700": "#9E2C27" },
+    "blue": { "400": "#6BA8DC", "600": "#2C6FB0", "700": "#215589" },
+    "alpha": {
+      "white-04": "rgba(255,255,255,0.04)",
+      "white-05": "rgba(255,255,255,0.05)",
+      "white-09": "rgba(255,255,255,0.09)",
+      "white-16": "rgba(255,255,255,0.16)",
+      "black-04": "rgba(10,11,13,0.04)",
+      "black-08": "rgba(10,11,13,0.08)",
+      "black-14": "rgba(10,11,13,0.14)",
+      "accent-wash-dark": "rgba(227,174,62,0.14)",
+      "accent-wash-light": "rgba(156,111,25,0.18)",
+      "accent-ring-dark": "rgba(227,174,62,0.42)",
+      "accent-ring-light": "rgba(156,111,25,0.35)",
+      "scrim-dark": "rgba(6,7,9,0.72)",
+      "scrim-light": "rgba(16,18,21,0.42)"
+    },
+    "raw": {
+      "surface-dark": "#16181C",
+      "surface-raised-dark": "#1C1F24",
+      "surface-sunken-dark": "#0A0B0D",
+      "fg-dark": "#E9EBEE",
+      "fg-2-dark": "#C0C5CC",
+      "meta-dark": "#5E646C"
+    }
+  },
+
+  "semantic": {
+    "dark": {
+      "bg": { "value": "{primitive.neutral.900}", "type": "color", "role": "页面背景" },
+      "surface": { "value": "{primitive.raw.surface-dark}", "type": "color", "role": "卡片 / 容器背景" },
+      "surface-raised": { "value": "{primitive.raw.surface-raised-dark}", "type": "color", "role": "浮层 / 菜单 / 抽屉" },
+      "surface-sunken": { "value": "{primitive.raw.surface-sunken-dark}", "type": "color", "role": "内嵌区 / 代码块 / 输入槽" },
+      "surface-warm": { "value": "{primitive.alpha.white-04}", "type": "color", "role": "三级表面 / 悬停底" },
+      "scrim": { "value": "{primitive.alpha.scrim-dark}", "type": "color", "role": "模态遮罩" },
+
+      "fg": { "value": "{primitive.raw.fg-dark}", "type": "color", "role": "主文本" },
+      "fg-2": { "value": "{primitive.raw.fg-2-dark}", "type": "color", "role": "次级文本" },
+      "muted": { "value": "{primitive.neutral.400}", "type": "color", "role": "说明 / 占位" },
+      "meta": { "value": "{primitive.raw.meta-dark}", "type": "color", "role": "元数据 / 非关键标签（不做唯一信息载体）" },
+
+      "border": { "value": "{primitive.alpha.white-09}", "type": "color", "role": "默认描边" },
+      "border-strong": { "value": "{primitive.alpha.white-16}", "type": "color", "role": "聚焦 / 选中描边" },
+      "border-soft": { "value": "{primitive.alpha.white-05}", "type": "color", "role": "行分隔" },
+
+      "accent": { "value": "{primitive.amber.400}", "type": "color", "role": "品牌强调（舞台暖光），每屏可见使用 ≤ 2 处" },
+      "accent-hover": { "value": "#ECBE5A", "type": "color", "role": "强调色悬停" },
+      "accent-active": { "value": "{primitive.amber.500}", "type": "color", "role": "强调色按下" },
+      "accent-on": { "value": "{primitive.neutral.950}", "type": "color", "role": "强调色之上的前景" },
+      "accent-subtle": { "value": "{primitive.alpha.accent-wash-dark}", "type": "color", "role": "强调色淡底 / 选中行底" },
+      "accent-ring": { "value": "{primitive.alpha.accent-ring-dark}", "type": "color", "role": "聚焦环" },
+
+      "success": { "value": "{primitive.green.400}", "type": "color" },
+      "warn": { "value": "{primitive.orange.400}", "type": "color" },
+      "danger": { "value": "{primitive.red.400}", "type": "color" },
+      "info": { "value": "{primitive.blue.400}", "type": "color" },
+
+      "focus-ring-color": { "value": "{primitive.alpha.accent-ring-dark}", "type": "color", "role": "全局 :focus-visible 环" },
+      "reading-surface": { "value": "#14161A", "type": "color", "role": "会话阅读区背景（比 surface 更暗、更静）" }
+    },
+    "light": {
+      "bg": { "value": "{primitive.neutral.50}", "type": "color" },
+      "surface": { "value": "{primitive.neutral.0}", "type": "color" },
+      "surface-raised": { "value": "{primitive.neutral.0}", "type": "color" },
+      "surface-sunken": { "value": "{primitive.neutral.100}", "type": "color" },
+      "surface-warm": { "value": "{primitive.neutral.25}", "type": "color" },
+      "scrim": { "value": "{primitive.alpha.scrim-light}", "type": "color" },
+
+      "fg": { "value": "{primitive.neutral.800}", "type": "color" },
+      "fg-2": { "value": "{primitive.neutral.600}", "type": "color" },
+      "muted": { "value": "{primitive.neutral.500}", "type": "color" },
+      "meta": { "value": "{primitive.neutral.400}", "type": "color" },
+
+      "border": { "value": "{primitive.neutral.200}", "type": "color" },
+      "border-strong": { "value": "{primitive.neutral.300}", "type": "color" },
+      "border-soft": { "value": "{primitive.neutral.100}", "type": "color" },
+
+      "accent": { "value": "{primitive.amber.700}", "type": "color" },
+      "accent-hover": { "value": "{primitive.amber.800}", "type": "color" },
+      "accent-active": { "value": "#6B4A0F", "type": "color" },
+      "accent-on": { "value": "{primitive.neutral.0}", "type": "color" },
+      "accent-subtle": { "value": "{primitive.alpha.accent-wash-light}", "type": "color" },
+      "accent-ring": { "value": "{primitive.alpha.accent-ring-light}", "type": "color" },
+
+      "success": { "value": "{primitive.green.600}", "type": "color" },
+      "warn": { "value": "{primitive.orange.600}", "type": "color" },
+      "danger": { "value": "{primitive.red.600}", "type": "color" },
+      "info": { "value": "{primitive.blue.600}", "type": "color" },
+
+      "focus-ring-color": { "value": "{primitive.alpha.accent-ring-light}", "type": "color" },
+      "reading-surface": { "value": "{primitive.neutral.25}", "type": "color" }
+    }
+  },
+
+  "typography": {
+    "family": {
+      "sans": {
+        "value": "\"Inter\", \"Noto Sans SC\", \"PingFang SC\", \"Microsoft YaHei\", \"Segoe UI\", system-ui, sans-serif",
+        "type": "fontFamily",
+        "role": "UI / 创作端主体（西文在前，中文回退在后）"
+      },
+      "serif": {
+        "value": "\"Noto Serif SC\", \"Source Han Serif SC\", \"Songti SC\", \"SimSun\", \"Georgia\", serif",
+        "type": "fontFamily",
+        "role": "仅会话叙事正文（session density 专用），不用于任何 UI 控件"
+      },
+      "mono": {
+        "value": "\"JetBrains Mono\", \"Fira Code\", \"SFMono-Regular\", Consolas, monospace",
+        "type": "fontFamily",
+        "role": "仅技术信息：Token 计数、参数数值、代码块、快捷键"
+      }
+    },
+    "size": {
+      "xs": { "value": "12px", "rem": "0.75rem", "type": "dimension" },
+      "sm": { "value": "13px", "rem": "0.8125rem", "type": "dimension" },
+      "base": { "value": "14px", "rem": "0.875rem", "type": "dimension", "role": "创作端 UI 默认" },
+      "md": { "value": "15px", "rem": "0.9375rem", "type": "dimension" },
+      "lg": { "value": "16px", "rem": "1rem", "type": "dimension" },
+      "xl": { "value": "18px", "rem": "1.125rem", "type": "dimension" },
+      "2xl": { "value": "22px", "rem": "1.375rem", "type": "dimension" },
+      "3xl": { "value": "28px", "rem": "1.75rem", "type": "dimension" },
+      "4xl": { "value": "36px", "rem": "2.25rem", "type": "dimension" }
+    },
+    "weight": {
+      "regular": { "value": 400, "type": "fontWeight", "role": "正文 / 描述" },
+      "medium": { "value": 500, "type": "fontWeight", "role": "标签 / 表头 / 次标题" },
+      "semibold": { "value": 600, "type": "fontWeight", "role": "标题 / CTA" },
+      "bold": { "value": 700, "type": "fontWeight", "role": "极少数强调（慎用）" }
+    },
+    "lineHeight": {
+      "tight": { "value": 1.25, "type": "number", "role": "大标题" },
+      "snug": { "value": 1.4, "type": "number", "role": "小标题 / 标签" },
+      "normal": { "value": 1.5, "type": "number", "role": "英文正文" },
+      "relaxed": { "value": 1.6, "type": "number", "role": "中文正文 / 创作端说明" },
+      "reading": { "value": 1.75, "type": "number", "role": "会话叙事正文（中文长文）" }
+    },
+    "letterSpacing": {
+      "tighter": { "value": "-0.02em", "type": "dimension", "role": "展示标题" },
+      "tight": { "value": "-0.01em", "type": "dimension", "role": "层级标题" },
+      "normal": { "value": "0", "type": "dimension", "role": "中文正文（中文不加字距）" },
+      "wide": { "value": "0.02em", "type": "dimension", "role": "小号英文标签" },
+      "wider": { "value": "0.06em", "type": "dimension", "role": "全大写英文标签（必须 ≥0.06em）" }
+    },
+    "rules": {
+      "cjkLatinGap": "中西文之间插入 0.25em 视觉空隙（渲染层处理，不用全局 letter-spacing）",
+      "numeric": "数字与 Token 计数一律 tabular-nums（font-variant-numeric: tabular-nums）",
+      "punctuation": "中文内容用全角标点，英文/代码用半角标点，不混用",
+      "noGlobalLetterSpacing": "禁止对中文正文全局设置 letter-spacing，会破坏字形结构"
+    }
+  },
+
+  "spacing": {
+    "0": "0",
+    "1": { "value": "4px", "type": "dimension" },
+    "2": { "value": "8px", "type": "dimension" },
+    "3": { "value": "12px", "type": "dimension" },
+    "4": { "value": "16px", "type": "dimension" },
+    "5": { "value": "20px", "type": "dimension" },
+    "6": { "value": "24px", "type": "dimension" },
+    "8": { "value": "32px", "type": "dimension" },
+    "10": { "value": "40px", "type": "dimension" },
+    "12": { "value": "48px", "type": "dimension" },
+    "16": { "value": "64px", "type": "dimension" },
+    "20": { "value": "80px", "type": "dimension" }
+  },
+
+  "radius": {
+    "none": { "value": "0", "type": "dimension" },
+    "xs": { "value": "4px", "type": "dimension", "role": "标签 / 徽章" },
+    "sm": { "value": "6px", "type": "dimension", "role": "按钮 / 输入框" },
+    "md": { "value": "8px", "type": "dimension", "role": "卡片 / 面板" },
+    "lg": { "value": "10px", "type": "dimension", "role": "大面板 / 抽屉" },
+    "xl": { "value": "12px", "type": "dimension", "role": "模态框 / 卡片上限" },
+    "2xl": { "value": "16px", "type": "dimension", "role": "浮层上限（超过即 AI 过度圆滑）" },
+    "pill": { "value": "9999px", "type": "dimension", "role": "头像 / 胶囊开关" }
+  },
+
+  "shadow": {
+    "none": { "value": "none", "type": "boxShadow", "role": "elev-0 平面" },
+    "xs": { "value": "0 1px 2px rgba(10,11,13,0.06)", "type": "boxShadow" },
+    "sm": { "value": "0 1px 2px rgba(10,11,13,0.06), 0 1px 3px rgba(10,11,13,0.08)", "type": "boxShadow" },
+    "md": { "value": "0 4px 12px rgba(10,11,13,0.10)", "type": "boxShadow", "role": "elev-2 抬升卡片" },
+    "lg": { "value": "0 12px 32px rgba(10,11,13,0.16)", "type": "boxShadow", "role": "elev-3 抽屉 / 菜单" },
+    "xl": { "value": "0 20px 56px rgba(10,11,13,0.24)", "type": "boxShadow", "role": "elev-4 模态框" },
+    "ring": { "value": "0 0 0 1px var(--color-border)", "type": "boxShadow", "role": "深色主题用描边代替阴影表达层次" },
+    "glow-accent": { "value": "0 0 0 1px var(--color-accent-ring)", "type": "boxShadow", "role": "聚焦 / 选中，非装饰发光" }
+  },
+
+  "motion": {
+    "duration": {
+      "instant": { "value": "80ms", "type": "duration", "role": "按下 / 勾选即时反馈" },
+      "fast": { "value": "120ms", "type": "duration", "role": "悬停变色" },
+      "base": { "value": "160ms", "type": "duration", "role": "状态确认（全站收敛值）" },
+      "moderate": { "value": "220ms", "type": "duration", "role": "下拉 / 抽屉进入" },
+      "slow": { "value": "320ms", "type": "duration", "role": "跨屏过渡 / 模态（上限）" }
+    },
+    "easing": {
+      "standard": { "value": "cubic-bezier(0.2, 0, 0, 1)", "type": "cubicBezier", "role": "默认" },
+      "emphasized": { "value": "cubic-bezier(0.16, 1, 0.3, 1)", "type": "cubicBezier", "role": "进入 / 展开（有减速感，无回弹）" },
+      "accelerate": { "value": "cubic-bezier(0.4, 0, 1, 1)", "type": "cubicBezier", "role": "退出 / 收起" },
+      "linear": { "value": "linear", "type": "cubicBezier", "role": "进度 / 骨架微光" }
+    },
+    "rules": {
+      "maxDuration": "任何过渡 ≤ 320ms（跨屏过渡上限），禁止超过 1s",
+      "reducedMotion": "必须支持 @media (prefers-reduced-motion: reduce)：时长归零 + 保留状态切换",
+      "noBounce": "禁止任何弹跳/弹性/回弹曲线（如 cubic-bezier(0.68,-0.55,0.265,1.55)）",
+      "animateProps": "只动画 transform / opacity / color，禁止动画 width / height / top / left"
+    }
+  },
+
+  "zIndex": {
+    "base": { "value": 0, "type": "number" },
+    "content": { "value": 1, "type": "number" },
+    "raised": { "value": 10, "type": "number" },
+    "sticky": { "value": 100, "type": "number", "role": "吸顶栏 / 粘性头像" },
+    "dock": { "value": 200, "type": "number", "role": "输入坞 / 底部工具条" },
+    "backdrop": { "value": 900, "type": "number" },
+    "dropdown": { "value": 1000, "type": "number" },
+    "overlay": { "value": 1100, "type": "number" },
+    "drawer": { "value": 1150, "type": "number", "role": "元信息抽屉 / 分支树" },
+    "modal": { "value": 1200, "type": "number" },
+    "popover": { "value": 1300, "type": "number" },
+    "toast": { "value": 1400, "type": "number" },
+    "tooltip": { "value": 1500, "type": "number" }
+  },
+
+  "breakpoint": {
+    "xs": { "value": "0px", "type": "dimension" },
+    "sm": { "value": "640px", "type": "dimension" },
+    "md": { "value": "768px", "type": "dimension" },
+    "lg": { "value": "1024px", "type": "dimension" },
+    "xl": { "value": "1280px", "type": "dimension" },
+    "2xl": { "value": "1536px", "type": "dimension" }
+  },
+
+  "layout": {
+    "container-max": { "value": "1440px", "type": "dimension", "role": "应用外壳最大宽度" },
+    "reading-measure": { "value": "68ch", "type": "dimension", "role": "会话阅读列最大行宽" },
+    "rail-width": { "value": "64px", "type": "dimension", "role": "全局导航 rail" },
+    "panel-width": { "value": "300px", "type": "dimension", "role": "列表 / 字段导航栏" },
+    "drawer-width": { "value": "380px", "type": "dimension", "role": "元信息抽屉" }
+  },
+
+  "icon": {
+    "library": { "value": "lucide-react ^1.0", "type": "string", "role": "全项目唯一图标库，禁止引入第二套；禁止 emoji 充当功能图标" },
+    "grid": { "value": 24, "type": "number", "role": "24x24 网格" },
+    "strokeWidth": { "value": 2, "type": "number", "role": "统一描边宽度（Lucide 默认值），全项目一致" },
+    "size": {
+      "inline": { "value": "16px", "type": "dimension", "role": "行内 / 标签旁（w-4 h-4）" },
+      "button": { "value": "20px", "type": "dimension", "role": "按钮内（w-5 h-5）" },
+      "standalone": { "value": "24px", "type": "dimension", "role": "独立按钮 / 导航（w-6 h-6）" }
+    },
+    "color": { "value": "currentColor", "type": "string", "role": "继承文字色，禁止硬编码（除 #fff/#000）" },
+    "a11y": { "value": "语义图标 role=\"img\" + aria-label；装饰图标 aria-hidden=\"true\"", "type": "string" },
+    "brandIcons": { "value": "Simple Icons 单文件 SVG（品牌资产，不计入图标库混用）", "type": "string" }
+  },
+
+  "density": {
+    "studio": {
+      "font-size-base": "14px",
+      "line-height": 1.6,
+      "row-height": "32px",
+      "control-height": "32px",
+      "surface": "清晰 1px 描边 + 无阴影",
+      "purpose": "长时间调参：高信息密度、清晰分组、弱装饰"
+    },
+    "session": {
+      "font-size-base": "16px",
+      "font-size-reading": "17px",
+      "line-height": 1.75,
+      "row-height": "auto",
+      "control-height": "36px",
+      "font-family-narrative": "var(--font-serif)",
+      "surface": "低对比背景 + 无描边 + 大量留白",
+      "purpose": "长时间阅读：沉浸、弱 chrome、元信息收起"
+    }
+  }
+}
