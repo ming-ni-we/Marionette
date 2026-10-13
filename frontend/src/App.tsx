@@ -8,6 +8,9 @@ import { WorldBookEditorPage } from '@/pages/worldbook-editor';
 import { PresetEditorPage } from '@/pages/preset-editor';
 import { SessionListPage } from '@/pages/session-list';
 import { SessionRuntimePage } from '@/pages/session-runtime';
+import { StoryRuntimePage } from '@/pages/story-runtime';
+import { WorldsPage } from '@/pages/worlds';
+import { WorldEditorPage } from '@/pages/world-editor';
 import { AssetGalleryPage } from '@/pages/asset-gallery';
 import { SettingsPage } from '@/pages/settings';
 import { SetupPage } from '@/pages/setup';
@@ -48,6 +51,12 @@ export function App() {
         <Route path="presets/:id" element={<PresetEditorPage />} />
         <Route path="sessions" element={<SessionListPage />} />
         <Route path="sessions/:id" element={<SessionRuntimePage />} />
+        {/* 剧情演出（多角色 · AI 导演）：与 1v1 运行时并列，共用同一套流式状态机 */}
+        <Route path="stories/:id" element={<StoryRuntimePage />} />
+        {/* 剧情世界（多角色）：编辑与管理走独立工作面 */}
+        <Route path="worlds" element={<WorldsPage />} />
+        <Route path="worlds/new" element={<WorldEditorPage />} />
+        <Route path="worlds/:worldId" element={<WorldEditorPage />} />
         <Route path="assets" element={<AssetGalleryPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<NotFoundPage />} />

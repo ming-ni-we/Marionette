@@ -18,6 +18,7 @@ import type {
   PagedPresets,
   PagedSessions,
   PagedWorldBooks,
+  PagedWorlds,
   Preset,
   PresetInput,
   SampleInstallResult,
@@ -27,10 +28,14 @@ import type {
   SessionCreateRequest,
   SessionUpdateRequest,
   SystemInfo,
+  StorySnapshot,
+  World,
   WorldBook,
   WorldBookInput,
   WorldBookTestRequest,
   WorldBookTestResult,
+  WorldInput,
+  WorldPatch,
 } from '../types';
 import { API_BASE, buildUrl, del, json, jsonPatch, jsonPut, request } from './core';
 
@@ -100,6 +105,16 @@ export const worldbooksApi = {
     request<WorldBookTestResult>(`/worldbooks/${id}/test`, json(input)),
 };
 
+/* ---------------------------------------------------------------- Worlds */
+
+export const worldsApi = {
+  list: (query?: SearchQuery) => request<PagedWorlds>('/worlds', undefined, query),
+  get: (id: string) => request<World>(`/worlds/${id}`),
+  create: (input: WorldInput) => request<World>('/worlds', json(input)),
+  update: (id: string, patch: WorldPatch) => request<World>(`/worlds/${id}`, jsonPatch(patch)),
+  remove: (id: string) => request<unknown>(`/worlds/${id}`, del()),
+};
+
 /* --------------------------------------------------------------- Presets */
 
 export const presetsApi = {
@@ -131,6 +146,8 @@ export const sessionsApi = {
   fork: (id: string, body: { from_message_id?: string; title?: string }) =>
     request<Session>(`/sessions/${id}/fork`, json(body)),
   lastContext: (id: string) => request<ContextSnapshot>(`/sessions/${id}/last-context`),
+  /** 剧情快照（1v1 会话也返回，`is_story=false`）：幕/节点/场景/角色/关系。 */
+  getStory: (id: string) => request<StorySnapshot>(`/sessions/${id}/story`),
 };
 
 /* ----------------------------------------------------------------- Images */

@@ -33,7 +33,8 @@ export function CardEditorPage() {
   const { cardId = '' } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const isNew = cardId === 'new';
+  // 路由 /cards/new 命中静态段后 useParams() 为空 → cardId=''，同样视为新建
+  const isNew = !cardId || cardId === 'new';
 
   const query = useQuery({
     queryKey: ['card', cardId],

@@ -14,6 +14,14 @@
   [9] 世界书 · at_depth 命中条目
   [10] 历史后指令   post_history_instructions
 
+剧情模式在此之上追加三段（**仅当调用方显式传入剧情 kwargs 时出现**，
+否则老 9 段组装结果逐字节不变 —— 见 S5 快照测试）：
+  [S1] story_state   幕/拍点/flag/待触发节点 + 在场角色（永不裁剪，硬截断 400 tok）
+  [S2] relations     与「本轮说话者」相关的关系子图（按 tension 降序截断）
+  [S3] cast_roster   在场角色 id/name/voice 一行摘要
+三段均插入在系统消息内、`memory` 之后 —— 位置紧跟角色定义与记忆，
+让模型先建立「我是谁」，再知道「世界现在什么样」。
+
 铁律：
   - 世界书三态判定**复用** services/world_info.py 的 WorldInfoEngine，不另写一套。
   - 占位符单遍替换；未知占位符**原样保留**并记 warnings。
@@ -47,6 +55,19 @@ _DEFAULT_BUDGET = {
     "vector_recall_pct": 5,
     "history_pct": 35,
 }
+
+# 剧情模式三段（可选，缺省不占预算 —— 老 1v1 路径零影响）
+#   story_pct    幕/拍点/flag/待触发节点 + 在场角色（硬截断，永不裁剪）
+#   relations_pct 与说话者相关的关系子图
+#   cast_pct      在场角色一行摘要
+_STORY_BUDGET = {
+    "story_pct": 8,
+    "relations_pct": 6,
+    "cast_pct": 5,
+}
+
+#: story_state 段即便超预算也不裁剪，但硬截断到此上限（防导演写飞）
+_STORY_HARD_CAP_TOKENS = 400
 
 
 @dataclass
@@ -95,6 +116,11 @@ class ContextAssembler:
         worldbooks: list[dict[str, Any]] | None = None,
         memory: dict[str, Any] | None = None,
         scan_text: str | None = None,
+        speaking_as: dict[str, Any] | None = None,
+        story_block: str = "",
+        relations_block: str = "",
+        node_block: str = "",
+        cast_roster: list[dict[str, Any]] | None = None,
     ) -> AssembledContext:
         """组装最终 prompt。
 
@@ -106,10 +132,21 @@ class ContextAssembler:
           - worldbooks：[WorldBookData]，含 entries / token_budget
           - memory：{rolling_summary, facts[], summary_upto_message_id}
           - scan_text：世界书扫描文本；缺省用最近历史 + 用户输入拼接
+
+        剧情模式可选参数（**全部缺省即 1v1，老调用零影响**）：
+          - speaking_as：本轮说话者 {id,name,voice,goals}，用于裁剪关系子图
+          - story_block：已渲染的剧情状态块（幕后/拍点/flag/待触发节点）
+          - relations_block：已渲染的关系图块（调用方可用 speaking_as 预裁剪）
+          - node_block：已渲染的待触发节点块（并入 story_state 段渲染）
+          - cast_roster：在场角色列表，用于生成一行摘要段
         """
         warnings: list[str] = []
         preset_data = preset or {}
-        budget_cfg = {**_DEFAULT_BUDGET, **(preset_data.get("context_budget") or {})}
+        budget_cfg = {
+            **_DEFAULT_BUDGET,
+            **_STORY_BUDGET,
+            **(preset_data.get("context_budget") or {}),
+        }
 
         # 占位符取值表（供模板替换）
         template = (preset_data.get("prompt_template") or {}).get("system", "")
@@ -145,6 +182,11 @@ class ContextAssembler:
         # ---- [2] 角色定义块 ----
         character_block = self._character_block(card)
 
+        # ---- [S1..S3] 剧情模式三段（缺省全空 → 不产生任何段）----
+        story_state_block = self._story_state_block(story_block, node_block, budget_cfg)
+        relations_rendered = self._relations_rendered(relations_block, speaking_as, budget_cfg)
+        cast_roster_block = self._cast_roster_block(cast_roster)
+
         # ---- [6] 示例对话 ----
         examples_block = self._examples_block(card, placeholders)
 
@@ -159,6 +201,9 @@ class ContextAssembler:
             + estimate_tokens(character_block)
             + estimate_tokens(world_before)
             + estimate_tokens(memory_block)
+            + estimate_tokens(story_state_block)
+            + estimate_tokens(relations_rendered)
+            + estimate_tokens(cast_roster_block)
             + estimate_tokens(examples_block)
             + estimate_tokens(world_example)
             + estimate_tokens(world_at_depth)
@@ -171,6 +216,7 @@ class ContextAssembler:
         # ---- 组装最终 messages（system + history + at_depth + post_history）----
         messages: list[ChatMessage] = []
         system_parts = [p for p in (system_text, character_block, world_before, memory_block,
+                                    story_state_block, relations_rendered, cast_roster_block,
                                     examples_block, world_example) if p.strip()]
         if system_parts:
             messages.append(ChatMessage(role="system", content="\n\n".join(system_parts)))
@@ -210,6 +256,11 @@ class ContextAssembler:
             {"name": "world_info_at_depth", "token_count": estimate_tokens(world_at_depth)},
             {"name": "post_history", "token_count": estimate_tokens(post_history)},
         ]
+        # 剧情模式三段：仅在真的产出内容时追加，老 1v1 的 segments 列表因此保持
+        # 恰好 9 项且逐项数值不变（S5 快照契约）。
+        segments.extend(self._story_segments(
+            story_state_block, relations_rendered, cast_roster_block
+        ))
 
         result = AssembledContext(
             messages=messages,
@@ -223,6 +274,9 @@ class ContextAssembler:
                 "available_tokens": total_budget,
                 "history_budget": history_budget,
                 "dropped_messages": dropped,
+                "story_tokens": estimate_tokens(story_state_block),
+                "relations_tokens": estimate_tokens(relations_rendered),
+                "cast_tokens": estimate_tokens(cast_roster_block),
             },
             estimated_prompt_tokens=estimated,
             warnings=warnings,
@@ -230,6 +284,87 @@ class ContextAssembler:
         )
         return result
 
+    # ------------------------------------------------------------------ #
+    # 剧情模式三段（S5）
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _story_state_block(story_block: str, node_block: str, budget_cfg: dict[str, Any]) -> str:
+        """拼装剧情状态段。
+
+        契约：**永不因预算为零而整段丢弃** —— 剧情状态是「模型此刻必须知道的事实」，
+        丢了会让角色说错话。改用硬截断到 `_STORY_HARD_CAP_TOKENS` 字符数上限来兜底。
+        """
+        parts = [p.strip() for p in (story_block, node_block) if p and p.strip()]
+        if not parts:
+            return ""
+        merged = "\n".join(parts)
+        cap_chars = _STORY_HARD_CAP_TOKENS * 2  # 中文约 2 字符/token，宽松留余量
+        if len(merged) > cap_chars:
+            merged = merged[:cap_chars].rstrip() + "…"
+        return merged
+
+    @staticmethod
+    def _relations_rendered(
+        relations_block: str, speaking_as: dict[str, Any] | None, budget_cfg: dict[str, Any]
+    ) -> str:
+        """关系图段：按预算裁剪（与 story_state 不同，关系可以丢几条不影响理解）。
+
+        调用方若已用 `speaking_as` 裁剪出子图，这里只做预算兜底截断。
+        """
+        text = (relations_block or "").strip()
+        if not text:
+            return ""
+        budget = int(budget_cfg["max_context_tokens"] * int(budget_cfg["relations_pct"]) / 100)
+        if budget <= 0:
+            return ""
+        if estimate_tokens(text) <= budget:
+            return text
+        # 按行（每条关系一行）从前往后保留，直到预算耗尽
+        kept: list[str] = []
+        used = 0
+        for line in text.splitlines():
+            cost = estimate_tokens(line) + 1
+            if kept and used + cost > budget:
+                break
+            kept.append(line)
+            used += cost
+        return "\n".join(kept)
+
+    @staticmethod
+    def _cast_roster_block(cast_roster: list[dict[str, Any]] | None) -> str:
+        """在场角色一行摘要：`id（名字·身份）语气` —— 供模型正确引用 speaker id。"""
+        if not cast_roster:
+            return ""
+        lines: list[str] = []
+        for member in cast_roster[:12]:
+            if not isinstance(member, dict):
+                continue
+            cid = str(member.get("id") or "").strip()
+            if not cid:
+                continue
+            name = str(member.get("name") or cid)
+            role = str(member.get("role") or "").strip()
+            voice = str(member.get("voice") or "").strip()
+            head = f"{cid}（{name}" + (f"·{role}" if role else "") + "）"
+            lines.append(f"{head}：{voice}" if voice else head)
+        if not lines:
+            return ""
+        return "【在场角色】\n" + "\n".join(lines)
+
+    @staticmethod
+    def _story_segments(
+        story_state_block: str, relations_rendered: str, cast_roster_block: str
+    ) -> list[dict[str, Any]]:
+        """只把**真正有内容**的剧情段追加进 segments（空段不占列表位）。"""
+        out: list[dict[str, Any]] = []
+        for name, text in (
+            ("story_state", story_state_block),
+            ("relations", relations_rendered),
+            ("cast_roster", cast_roster_block),
+        ):
+            if text.strip():
+                out.append({"name": name, "token_count": estimate_tokens(text)})
+        return out
     # ------------------------------------------------------------------ #
     # 内部
     # ------------------------------------------------------------------ #

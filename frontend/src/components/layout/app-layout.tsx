@@ -1,11 +1,12 @@
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Rail } from './rail';
-import { Folder, MessageSquare, Images, Settings } from '@/components/icons';
+import { Folder, MessageSquare, Images, Settings, Compass } from '@/components/icons';
 
 const MOBILE_ITEMS = [
   { to: '/', label: '内容库', icon: Folder, end: true },
   { to: '/sessions', label: '会话', icon: MessageSquare, end: false },
+  { to: '/worlds', label: '世界', icon: Compass, end: false },
   { to: '/assets', label: '素材', icon: Images, end: false },
   { to: '/settings', label: '设置', icon: Settings, end: false },
 ];

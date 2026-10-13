@@ -162,6 +162,8 @@ const ROUTES = [
   { path: '/cards/new', expect: /角色卡|新建|人设|预览/ },
   { path: '/worldbooks/new', expect: /世界书|条目|命中/ },
   { path: '/presets/new', expect: /预设|采样|温度|参数/ },
+  { path: '/worlds', expect: /剧情世界|世界|新建世界/ },
+  { path: '/worlds/new', expect: /基本信息|世界名称|角色群/ },
   { path: '/sessions', expect: /会话|新建会话|演示数据/ },
   { path: '/assets', expect: /素材|图集|出图|归档/ },
   { path: '/settings', expect: /设置|审核|模型后端|诊断/ },
@@ -175,11 +177,12 @@ const ROUTES = [
     path: '/sessions/s1f0a1e2-0001-4d01-9c01-000000000001',
     expect: /怀表/, // 只有演示消息正文里出现，证明历史被真正回填
   },
+  { path: '/stories/s1f0a1e2-0001-4d01-9c01-000000000001', expect: /导演|旁白|行动/ },
   { path: '/cards/c1f0a1e2-0001-4a01-9f01-000000000001', expect: /苏晚/ },
   { path: '/presets/p1f0a1e2-0001-4c01-9b01-000000000001', expect: /日常向/ },
 ];
 
-const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS } = await import(
+const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime } = await import(
   pathToFileURL(outfile).href
 );
 
@@ -277,6 +280,7 @@ async function probeSse() {
 
 const hit = probeHitTest();
 const sse = await probeSse();
+const story = await probeStoryRuntime();
 
 /* --------------------------------- 4) 报告 -------------------------------- */
 console.error = origErr;
@@ -300,8 +304,20 @@ console.log(
   `${hit.ok ? 'PASS' : 'FAIL'}  三态命中判定  未命中=${hit.miss} 命中且在预算内=${hit.inBudget} 命中但被挤出=${hit.evicted} (used ${hit.total}/${hit.budget})`,
 );
 console.log(`${sse.ok ? 'PASS' : 'FAIL'}  SSE 事件链路  ${sse.sequence}  delta=${sse.deltas}`);
+console.log(
+  `${story.ok ? 'PASS' : 'FAIL'}  剧情多角色独立气泡  气泡=${story.bubbles.length} 名字=[${story.bubbles
+    .map((b) => b.name)
+    .join('、')}] 行动建议=${story.suggestionCount} 旁白未被串=${story.narrationClean}`,
+);
+if (!story.ok) {
+  for (const b of story.bubbles) {
+    console.log(`       ${b.name || '(无名)'}: ${b.text.replace(/\s+/g, ' ').slice(0, 60)}`);
+  }
+  console.log(`       旁白: ${story.narrationText.replace(/\s+/g, ' ').slice(0, 60)}`);
+}
 
-const probeFailed = (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1);
+const probeFailed =
+  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1);
 console.log(
   failed === 0 && errors.length === 0 && probeFailed === 0
     ? '\n[结论] PASS'

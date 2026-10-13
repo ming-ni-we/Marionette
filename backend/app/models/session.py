@@ -30,6 +30,12 @@ class Session(Base, UUIDPrimaryKey, TimestampMixin):
         ForeignKey("presets.id", ondelete="SET NULL"),
         nullable=True,
     )
+    # 剧情模式下绑定的世界；世界观被删时会话保留（SET NULL），退化为只读历史
+    world_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("worlds.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     title: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="active")
     # 挂载的世界书 id 列表（可含卡内书）
@@ -61,5 +67,6 @@ class Session(Base, UUIDPrimaryKey, TimestampMixin):
     __table_args__ = (
         Index("ix_sessions_owner_updated", "owner_id", text("updated_at DESC")),
         Index("ix_sessions_card_id", "card_id"),
+        Index("ix_sessions_world_id", "world_id"),
         Index("ix_sessions_owner_status", "owner_id", "status"),
     )

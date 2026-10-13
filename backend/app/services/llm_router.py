@@ -102,4 +102,44 @@ class LLMRouter:
             ) from exc
 
 
+    async def complete(
+        self,
+        messages: Iterable[ChatMessage],
+        *,
+        params: dict[str, Any] | None = None,
+        overrides: dict[str, Any] | None = None,
+    ) -> str:
+        """非流式一次性返回文本；错误归类与 stream() 完全一致。
+
+        用于导演决策 / 行动建议等需要拿到完整 JSON 再解析的场景。
+        """
+        backend = await self.resolve(overrides)
+        provider = get_llm_provider()
+        merged_params = {**(backend.extra or {}), **(params or {})}
+        try:
+            result = await provider.complete_chat(
+                messages,
+                base_url=backend.base_url,
+                api_key=backend.api_key,
+                model=backend.model,
+                params=merged_params or None,
+            )
+            return result.text
+        except UpstreamStreamError as exc:
+            logger.warning(
+                "llm upstream completion error",
+                extra={"error_class": exc.error_class.value, "model_seen": backend.model},
+            )
+            raise UpstreamError(
+                exc.message, error_class=exc.error_class, model_seen=backend.model
+            ) from exc
+        except Exception as exc:  # noqa: BLE001 —— 兜底归类，避免 500 直冒
+            logger.warning("llm completion failed: %s", type(exc).__name__)
+            raise UpstreamError(
+                f"LLM 调用失败（{type(exc).__name__}）：请检查后端配置与网络。",
+                error_class=ErrorClass.network_unreachable,
+                model_seen=backend.model,
+            ) from exc
+
+
 __all__ = ["LLMBackend", "LLMRouter"]

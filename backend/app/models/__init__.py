@@ -10,6 +10,7 @@ from app.models.memory_snapshot import MemorySnapshot
 from app.models.message import Message
 from app.models.preset import Preset
 from app.models.session import Session
+from app.models.world import World
 from app.models.worldbook import WorldBook
 
 __all__ = [
@@ -23,5 +24,6 @@ __all__ = [
     "Message",
     "Preset",
     "Session",
+    "World",
     "WorldBook",
 ]

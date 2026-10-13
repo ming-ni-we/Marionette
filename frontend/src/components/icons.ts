@@ -96,6 +96,7 @@ export {
   Send,
   Square,
   Pause,
+  Play,
   RefreshCw,
   ArrowLeftRight,
   Type,

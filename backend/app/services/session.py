@@ -26,6 +26,7 @@ from app.models.card import Card
 from app.models.message import Message as MessageRow
 from app.models.preset import Preset
 from app.models.session import Session as SessionRow
+from app.services.tokens import estimate_tokens
 
 logger = get_logger(__name__)
 
@@ -94,6 +95,7 @@ class SessionSvc:
             "spec_version": row.spec_version,
             "character_card_id": row.card_id,
             "preset_id": row.preset_id,
+            "world_id": row.world_id,
             "worldbook_ids": list(row.worldbook_ids or []),
             "user_persona": row.user_persona or {},
             "status": row.status,
@@ -163,6 +165,17 @@ class SessionSvc:
     # 写：创建
     # ------------------------------------------------------------------ #
     async def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """创建会话。
+
+        `payload["world_id"]` 存在 → 走**剧情模式**（`spec="story_session"`，
+        由 `create_story_session` 接管：固化世界观、生成序幕）；
+        缺省 → 原有 1v1 行为，**一字节未改**。
+        """
+        if payload.get("world_id"):
+            return await self.create_story_session(payload)
+        return await self._create_rpg_session(payload)
+
+    async def _create_rpg_session(self, payload: dict[str, Any]) -> dict[str, Any]:
         card_id = parse_uuid(payload.get("character_card_id"), field="character_card_id")
         preset_id = parse_uuid(payload.get("preset_id"), field="preset_id")
 
@@ -226,6 +239,126 @@ class SessionSvc:
         if 0 <= index < len(greetings):
             return str(greetings[index])
         return str(card_data.get("first_mes") or "")
+
+    # ------------------------------------------------------------------ #
+    # 写：创建剧情会话（剧情引擎）
+    # ------------------------------------------------------------------ #
+    async def create_story_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """创建剧情会话：绑定世界观 + 固化 cast/relations + 生成序幕。
+
+        与 1v1 创建的三点差异：
+          1. `spec = "story_session"`（模式开关，ChatSvc 据此分派）
+          2. `world_id` 落列，并把世界的 cast/relations **固化副本**写进
+             `extensions.story`（避免每轮回查 worlds 表，也让世界观被改/删后剧情自洽）
+          3. 序幕由 `OpeningSvc` 生成（LLM 或降级文案），逐段落库为 assistant 消息
+
+        序幕落库放在**这里**而不是 OpeningSvc 内，是为了让 `seq` 单调递增的
+        唯一维护者仍是本服务（流式恢复的基石）。
+        """
+        from app.models.world import World
+        from app.services.opening import OpeningSvc
+
+        card_id = parse_uuid(payload.get("character_card_id"), field="character_card_id")
+        preset_id = parse_uuid(payload.get("preset_id"), field="preset_id")
+        world_id = parse_uuid(payload.get("world_id"), field="world_id")
+
+        card = (
+            await self._db.execute(select(Card).where(Card.id == card_id))
+        ).scalar_one_or_none()
+        if card is None:
+            raise NotFoundError("角色卡不存在，无法开启剧情。")
+        preset = (
+            await self._db.execute(select(Preset).where(Preset.id == preset_id))
+        ).scalar_one_or_none()
+        if preset is None:
+            raise NotFoundError("预设不存在，无法开启剧情。")
+        world = (
+            await self._db.execute(select(World).where(World.id == world_id))
+        ).scalar_one_or_none()
+        if world is None:
+            raise NotFoundError("世界观不存在，无法开启剧情。")
+
+        cast = list(world.cast or [])
+        relations = list(world.relations or [])
+        scene = {
+            "location": "",
+            "time": "",
+            "mood": str((world.setting or {}).get("tone") or ""),
+            "summary": str((world.setting or {}).get("summary") or ""),
+            "present": [str(c.get("id")) for c in cast[:3] if isinstance(c, dict) and c.get("id")],
+        }
+
+        row = SessionRow(
+            owner_id="local",
+            card_id=card_id,
+            preset_id=preset_id,
+            world_id=world_id,
+            title=payload.get("title") or world.title or "未命名剧情",
+            status="active",
+            worldbook_ids=[str(w) for w in (payload.get("worldbook_ids") or [])],
+            user_persona=payload.get("user_persona") or {},
+            state_machine=dict(_DEFAULT_STATE_MACHINE),
+            scene=scene,
+            memory={"rolling_summary": "", "summary_upto_message_id": None, "facts": []},
+            triggered_entries={},
+            context={},
+            spec="story_session",
+            spec_version="1.0",
+            extensions={},
+        )
+        # 固化世界观副本（cast / relations 深拷贝进 extensions.story）
+        from app.services.story_state import StoryStateSvc
+
+        StoryStateSvc(self._db).bind_world(
+            row, world_id=str(world.id), cast=cast, relations=relations
+        )
+        self._db.add(row)
+        await self._db.flush()
+        await self._db.refresh(row)
+
+        # ---- 序幕：生成草稿 -> 逐段落库 ----
+        opening_svc = OpeningSvc(self._db)
+        drafts = await opening_svc.generate(
+            world={
+                "id": str(world.id),
+                "title": world.title,
+                "setting": dict(world.setting or {}),
+                "factions": list(world.factions or []),
+                "outline": dict(world.outline or {}),
+                "opening": world.opening or "",
+            },
+            card=dict(card.data or {}),
+            preset=dict(preset.data or {}),
+            cast=cast,
+            user_persona=dict(row.user_persona or {}),
+            overrides=(payload.get("overrides") or None),
+        )
+
+        messages: list[MessageRow] = []
+        for draft in drafts:
+            messages.append(
+                await self.append_message(
+                    row.id,
+                    role=str(draft.get("role") or "assistant"),
+                    content=str(draft.get("content") or ""),
+                    token_count=estimate_tokens(str(draft.get("content") or "")),
+                    meta=dict(draft.get("meta") or {}),
+                    touch=False,
+                )
+            )
+        # 序幕落完统一刷一次 last_message_at（避免每段都查一次会话行）
+        row.last_message_at = _now()
+        await self._db.flush()
+        # 必须 refresh：flush() 会把 row 上已加载的属性标记为 expired，
+        # 而 serialize() 要读 updated_at 等列。async 环境下访问 expired 属性会在
+        # greenlet 之外触发懒加载 IO -> MissingGreenlet（线上实测 500）。
+        # _create_rpg_session 在 flush() 后同样有 refresh(row)，此处对齐。
+        await self._db.refresh(row)
+        logger.info(
+            "story session created",
+            extra={"session": str(row.id), "world": str(world_id), "opening_parts": len(messages)},
+        )
+        return self.serialize(row, messages=messages or None)
 
     # ------------------------------------------------------------------ #
     # 写：更新（含乐观锁 + 状态迁移校验）
@@ -442,6 +575,9 @@ class SessionSvc:
                 )
             )
         await self._db.flush()
+        # 同 create_story_session：flush() 会 expire new_row，serialize() 读列属性
+        # 会在 greenlet 之外触发懒加载 -> MissingGreenlet。这里必须先 refresh。
+        await self._db.refresh(new_row)
         logger.info(
             "session forked", extra={"source": str(source.id), "fork": str(new_row.id)}
         )

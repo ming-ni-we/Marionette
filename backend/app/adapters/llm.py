@@ -14,7 +14,7 @@ from typing import Any
 
 import httpx
 
-from app.adapters.base import ChatMessage, LLMHealth, LLMProvider
+from app.adapters.base import ChatMessage, Completion, LLMHealth, LLMProvider
 from app.core.errors import ErrorClass
 from app.core.logging import get_logger
 
@@ -200,6 +200,58 @@ class OpenAICompatibleLLMProvider(LLMProvider):
                     piece = delta.get("content")
                     if piece:
                         yield piece
+
+
+    async def complete_chat(
+        self,
+        messages: Iterable[ChatMessage],
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        params: dict[str, Any] | None = None,
+    ) -> Completion:
+        """非流式一次性补全（`stream=False`）。
+
+        与 stream_chat 共用同一套错误归类；上游出错时抛
+        UpstreamStreamError（由 llm_router 统一转为 UpstreamError）。
+        """
+        url = self._endpoint(base_url, "chat/completions")
+        body: dict[str, Any] = {
+            "model": model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "stream": False,
+        }
+        body.update(params or {})
+        async with httpx.AsyncClient(timeout=self._timeout) as client:
+            resp = await client.post(url, headers=self._headers(api_key), json=body)
+
+        if resp.status_code >= 400:
+            raw = resp.text or ""
+            error_class, message = _classify_http(resp.status_code, raw, model)
+            raise UpstreamStreamError(message, error_class=error_class)
+
+        try:
+            payload = resp.json()
+        except Exception:  # noqa: BLE001 —— 上游返回非 JSON
+            raise UpstreamStreamError(
+                "上游返回的不是合法 JSON，无法解析补全结果。",
+                error_class=ErrorClass.unknown,
+            ) from None
+
+        choices = payload.get("choices") if isinstance(payload, dict) else None
+        choice = choices[0] if isinstance(choices, list) and choices else {}
+        message_obj = choice.get("message") if isinstance(choice, dict) else None
+        text = ""
+        if isinstance(message_obj, dict):
+            content = message_obj.get("content")
+            if isinstance(content, str):
+                text = content
+        return Completion(
+            text=text,
+            finish_reason=choice.get("finish_reason") if isinstance(choice, dict) else None,
+            model_seen=_extract_model_seen(payload, model),
+        )
 
 
 class UpstreamStreamError(RuntimeError):

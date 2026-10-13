@@ -1,0 +1,20 @@
+# 「提线」备份 —— 腾讯云 COS 异地容灾配置（可选）
+#
+# 用法：把本文件复制为 /opt/marionette/.backup-env，填入真实值，然后 chmod 600。
+#       若本文件不存在或字段留空，backup.sh 会跳过 COS 上传（只做本地备份）。
+#
+# 权限：必须 600 且属主 root —— 内含密钥，绝不可进 git、也不该被 rsync 覆盖。
+#
+# 建议同时在该存储桶配置「生命周期规则」：前缀 marionette-backups/ 的对象
+# 于 90 天后转为低频存储、180 天后删除。本地只留 7 天，云端留更久才叫容灾。
+
+# 访问密钥：腾讯云控制台 → 访问管理 CAM → API 密钥管理
+# 强烈建议用「子账号 + 仅授权该桶读写」的最小权限密钥，不要用主账号密钥
+COS_SECRET_ID=""
+COS_SECRET_KEY=""
+
+# 存储桶：格式为 <bucket>-<appid>，例如 marionette-backup-1250000000
+COS_BUCKET=""
+
+# 地域：香港为 ap-hongkong（与服务器同地域可省跨区流量费）
+COS_REGION="ap-hongkong"

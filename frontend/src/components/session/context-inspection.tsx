@@ -16,6 +16,10 @@ const SEGMENT_LABEL: Record<ContextSegmentName, string> = {
   history: '历史消息',
   world_info_at_depth: '世界书 · 按深度插入',
   post_history: '历史后指令',
+  /* ---- 剧情模式新增（1v1 下 token 恒为 0，不渲染）---- */
+  story_state: '剧情状态（幕 · 拍点 · 旗标）',
+  relations: '角色关系图',
+  cast_roster: '在场角色',
 };
 
 const STATE_ICON = {

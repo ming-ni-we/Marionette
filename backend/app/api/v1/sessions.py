@@ -40,8 +40,10 @@ from app.schemas.session import (
 from app.schemas.session import (
     Session as SessionSchema,
 )
+from app.services.action_suggester import ActionSuggesterSvc
 from app.services.chat import ChatSvc, assert_not_generating
 from app.services.session import SessionSvc
+from app.services.story_state import StoryStateSvc, is_story_session
 from app.services.tokens import estimate_tokens
 
 _SSE_RESPONSES = {
@@ -213,3 +215,64 @@ async def get_last_context(db: DbSession, sessionId: str) -> Envelope[ContextSna
     row = await SessionSvc(db).get_row(sessionId)
     snapshot = dict(row.context or {})
     return Envelope(data=ContextSnapshot.model_validate(snapshot))
+
+
+@router.get(
+    "/sessions/{sessionId}/story",
+    response_model=Envelope[dict],
+    summary="获取剧情状态（刷新恢复用）",
+)
+async def get_story_state(db: DbSession, sessionId: str) -> Envelope[dict]:
+    """返回 `state_machine.story` + `scene` + 固化 cast/relations。
+
+    供前端刷新页面后恢复「幕·拍点 / 在场角色 / 关系图」，无需重放全部消息。
+    1v1 会话调用此端点返回空默认值（不报错），前端据此判断模式。
+    """
+    row = await SessionSvc(db).get_row(sessionId)
+    state = StoryStateSvc(db)
+    return Envelope(
+        data={
+            "spec": row.spec,
+            "is_story": is_story_session(row),
+            "world_id": state.extract_world_id(row),
+            "story": state.get_story(row),
+            "scene": state.get_scene_story(row),
+            "cast": state.get_cast(row),
+            "relations": state.get_relations(row),
+        }
+    )
+
+
+@router.get(
+    "/sessions/{sessionId}/actions",
+    response_model=Envelope[dict],
+    summary="补拉行动建议（SSE 尾帧丢失兜底）",
+)
+async def get_actions(db: DbSession, sessionId: str) -> Envelope[dict]:
+    """补拉本轮行动建议。
+
+    SSE 的 `actions` 帧可能因网络抖动丢失；前端可在 `done` 后按需补拉一次。
+    1v1 会话返回空列表（不报错）。
+    """
+    svc = SessionSvc(db)
+    row = await svc.get_row(sessionId)
+    state = StoryStateSvc(db)
+    if not is_story_session(row):
+        return Envelope(data={"actions": []})
+
+    messages = await svc.list_messages(row.id)
+    recent: list[dict[str, Any]] = []
+    for msg in messages[-6:]:
+        if msg.status != "complete":
+            continue
+        meta = msg.meta or {}
+        recent.append(
+            {"role": msg.role, "content": msg.content, "name": meta.get("speaker_name") or ""}
+        )
+    actions = await ActionSuggesterSvc(db).suggest(
+        scene=state.get_scene_story(row),
+        story=state.get_story(row),
+        cast=state.get_cast(row),
+        recent_messages=recent,
+    )
+    return Envelope(data={"actions": actions})

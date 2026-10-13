@@ -2,9 +2,13 @@
 .env
 .env.*
 !.env.example
+# 备份脚本的 COS 凭据（含 AK/SK），绝不入库
+.backup-env
 
 # 运行时数据（数据库 / 资产 / 证书，均可备份迁移，但不入库）
 data/
+# 自动备份产物（pg_dump / 资产 / .env 归档）
+backups/
 
 # 容器与构建产物
 dist/

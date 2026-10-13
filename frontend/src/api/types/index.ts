@@ -46,6 +46,7 @@ export type {
   SessionState,
   StateMachine,
   MessageMeta,
+  BeatRole,
   Message,
   MemoryFact,
   Memory,
@@ -55,8 +56,15 @@ export type {
   SessionUpdateRequest,
   StreamRequest,
   RegenerateRequest,
+  /* ---- 剧情模式（多角色）---- */
+  StoryState,
+  SceneStory,
+  CastMember,
+  Relation,
+  StorySnapshot,
   ContextSegmentName,
   ContextSegment,
+  ContextBudget,
   ContextSnapshot,
   SseWorldInfoEvent,
   SseStartEvent,
@@ -65,11 +73,34 @@ export type {
   SseImageEvent,
   SseDoneEvent,
   SseErrorEvent,
+  SseDirectorEvent,
+  SseSpeakerSwitchEvent,
+  SseNodeEvent,
+  SseActionsEvent,
+  ActionSuggestion,
+  ActionTone,
+  ActionsResponse,
   SseEventMap,
   SseEventName,
 } from './session';
 
+export { RPG_SPEC, STORY_SPEC, STORY_ONLY_EVENTS } from './session';
+
 export type { ImageJobCreateRequest, ImageJob, AssetKind, Asset } from './media';
+
+export type {
+  World,
+  WorldInput,
+  WorldPatch,
+  WorldSetting,
+  WorldFaction,
+  WorldCastMember,
+  WorldRelation,
+  WorldOutline,
+  WorldOutlineNode,
+} from './world';
+
+export { emptyWorld, nextEntityId } from './world';
 
 /* ----------------------------------------------------- 分页返回的便捷别名 */
 
@@ -77,9 +108,11 @@ import type { Paged } from './common';
 import type { Card, Preset, WorldBook } from './content';
 import type { Session } from './session';
 import type { Asset } from './media';
+import type { World } from './world';
 
 export type PagedCards = Paged<Card>;
 export type PagedWorldBooks = Paged<WorldBook>;
 export type PagedPresets = Paged<Preset>;
 export type PagedSessions = Paged<Session>;
 export type PagedAssets = Paged<Asset>;
+export type PagedWorlds = Paged<World>;

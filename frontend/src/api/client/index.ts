@@ -11,6 +11,7 @@ export {
   onboardingApi,
   cardsApi,
   worldbooksApi,
+  worldsApi,
   presetsApi,
   sessionsApi,
   imagesApi,
@@ -91,4 +92,6 @@ export const emptyPresetData = (): PresetData => ({
 
 /* ---------------------------------------------------------------- 类型转发 */
 
-export type { Paged, Card, WorldBook, Preset, Session, Asset } from '../types';
+export type { Paged, Card, WorldBook, Preset, Session, Asset, World } from '../types';
+
+export { emptyWorld, nextEntityId } from '../types';

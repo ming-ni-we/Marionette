@@ -257,7 +257,17 @@ marionette/
 2. **访问控制是合规前置条件**：形态为「仅限自用」，一旦实例被不特定人访问到，事实上就变成「面向公众」，会触发生成式 AI 的备案/登记义务。**不要关闭口令、不要裸奔到公网。**
 3. **域名与 HTTPS 待补**：当前走 HTTP 明文。买域名解析到该 IP 后，改 `.env` 的 `DOMAIN` + `SESSION_COOKIE_SECURE=true`，Caddy 会自动签证书。
 4. **服务器密码** `WBAccess@1` 偏短，建议改强密码或改用密钥登录。
-5. **备份**：Spec 要求 `pg_dump` 每日 + assets 增量，保留 ≥7 天，且恢复流程需演练一次 —— **当前尚未配置 cron，属待办**。
+   > ⚠️ **登录用户名是 `ubuntu`，不是 `root`**（这一点踩过坑）：
+   > `ssh ubuntu@101.33.117.223`。该用户在 `docker` + `sudo` 组，且 **sudo 免密**，
+   > 因此 `docker compose` / 读写 `/opt/marionette`（root 属主）均无需额外密码。
+   > 用 `root@101.33.117.223` 会得到 `Permission denied`，**别误判成密码被改**。
+   > 取代码的完整说明见 `docs/asset/task-GET-CODE.md`。
+5. **备份**：Spec 要求 `pg_dump` 每日 + assets 增量，保留 ≥7 天，且恢复流程需演练一次 ——
+   **已配置（2026-10-13）**：`/opt/marionette/backup.sh` + `restore.sh`，root crontab 里
+   `20 3 * * *` 备份、`40 4 * * 0` 演练恢复（`flock` 防重入）。已实测触发成功、演练恢复通过。
+   **遗留**：异地（腾讯 COS）上传通道已写好但**未启用**——缺 `COS_SECRET_ID`/`COS_SECRET_KEY`/`COS_BUCKET`，
+   填入 `/opt/marionette/.backup-env`（600）即生效。在此之前**只有本机备份**，
+   能防误删/损坏，**防不了机器或磁盘故障**。详见 `docs/asset/07-status-and-backlog.md` §3.5。
 6. **服务器到期** 2026-11-09，记得续费。
 7. **生产库存在测试脏数据（待清理）**：因为 §4.1 缺陷 2，集成测试曾把数据写进生产库。当前 `public` 计数 = `cards 74 / worldbooks 9 / presets 4 / assets 3 / sessions 0`，其中非你本人内容的待清理项：
    - **卡片**：`栖夜书店`·`栖夜咖啡馆`·`栖夜车站`·`栖夜天台`·`栖夜码头`·`栖夜小巷`·`栖夜公园`（各 3 份）、`倒序甲/乙/丙`（各 3 份）、`双标签角色`（3 份）、`单标签角色`、`空资产角色`、`描述检索角色`、`图集角色`、`格式校验角色`、`打包角色`、`PNG导出角色`、`PNG导出角色 (导入副本)`、`HTTP往返角色`、`HTTP往返角色 (导入副本)`、`PROBE_ISOLATION_CARD`

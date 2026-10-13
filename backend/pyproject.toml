@@ -31,6 +31,9 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "ruff>=0.6",
+    # 单元测试用内存 SQLite（tests/conftest.py 的 async 引擎），必须声明，
+    # 否则全新环境 `pip install -e ".[dev]"` 后跑 pytest 会 ModuleNotFoundError。
+    "aiosqlite>=0.20",
 ]
 
 [tool.setuptools.packages.find]

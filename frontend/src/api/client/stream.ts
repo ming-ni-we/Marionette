@@ -113,7 +113,14 @@ function openSse(
   return { abort: () => controller.abort() };
 }
 
-const KNOWN_EVENTS: SseEventName[] = [
+/**
+ * 事件白名单（**双白名单之一**，另一处是 `types/session.ts` 的 `SseEventMap`）。
+ *
+ * 后 4 个是剧情模式独有的：1v1 后端永远不会发，剧情后端只在 story_session 下发。
+ * 漏加一个 → 事件被静默丢弃（`dispatchFrame` 直接 return），页面表现为「卡住」，
+ * 排查时优先核对本数组与 `SseEventMap` 是否同构。
+ */
+export const KNOWN_EVENTS: SseEventName[] = [
   'world_info',
   'start',
   'delta',
@@ -121,6 +128,11 @@ const KNOWN_EVENTS: SseEventName[] = [
   'image',
   'done',
   'error',
+  // ---- 剧情模式（story_session）----
+  'director',
+  'speaker_switch',
+  'node',
+  'actions',
 ];
 
 function dispatchFrame(frame: string, callbacks: StreamCallbacks): void {

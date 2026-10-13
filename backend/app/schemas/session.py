@@ -97,6 +97,8 @@ class Session(BaseModel):
     spec_version: str = "1.0"
     character_card_id: UUID | None = None
     preset_id: UUID | None = None
+    # 剧情模式绑定的世界观；1v1 会话恒为 None
+    world_id: UUID | None = None
     worldbook_ids: list[UUID] = Field(default_factory=list)
     user_persona: UserPersona = Field(default_factory=UserPersona)
     status: SessionStatus = "active"
@@ -115,6 +117,8 @@ class SessionCreateRequest(BaseModel):
 
     character_card_id: UUID
     preset_id: UUID
+    # 传入即创建**剧情会话**（spec=story_session），缺省则保持 1v1 行为不变
+    world_id: UUID | None = None
     worldbook_ids: list[UUID] = Field(default_factory=list)
     user_persona: UserPersona = Field(default_factory=UserPersona)
     greeting_index: int = -1

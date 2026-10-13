@@ -21,10 +21,11 @@ export { SAMPLE_CARDS } from './samples/cards';
 export { SAMPLE_WORLDBOOKS } from './samples/worldbooks';
 export { SAMPLE_PRESETS } from './samples/presets';
 export { SAMPLE_SESSIONS } from './samples/sessions';
+export { SAMPLE_WORLDS } from './samples/worlds';
 
 export { DEMO_FLAG, SAMPLE_SYSTEM_INFO } from './system';
 export { SAMPLE_ASSETS } from './assets';
 export { SAMPLE_CONTEXT } from './context';
 export { mockWorldBookTest } from './worldbook-test';
-export { STATE_LABEL, mockStream } from './stream';
+export { STATE_LABEL, mockStream, mockStoryStream } from './stream';
 export type { MockStreamHandle } from './stream';

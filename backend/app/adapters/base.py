@@ -51,6 +51,19 @@ class ChatMessage:
     content: str
 
 
+@dataclass(frozen=True)
+class Completion:
+    """非流式一次性补全的结果。
+
+    用于导演决策 / 行动建议等「需要完整 JSON 再做解析」的场景 ——
+    这类调用对流式的逐块增量没有意义，反而增加拼接与解析成本。
+    """
+
+    text: str
+    finish_reason: str | None = None
+    model_seen: str | None = None
+
+
 @dataclass
 class LLMHealth:
     """连通性自检结果，error_class 取 7 类之一（AC-04）。"""
@@ -84,6 +97,23 @@ class LLMProvider(ABC):
         params: dict[str, Any] | None = None,
     ) -> AsyncIterator[str]:
         """逐块产出回复文本。实现为 async generator。"""
+
+    @abstractmethod
+    async def complete_chat(
+        self,
+        messages: Iterable[ChatMessage],
+        *,
+        base_url: str,
+        api_key: str,
+        model: str,
+        params: dict[str, Any] | None = None,
+    ) -> Completion:
+        """非流式一次性补全。
+
+        导演决策 / 行动建议等场景需要拿到完整 JSON 才能解析，
+        流式增量反而增加拼接成本，故单列一个方法。
+        错误归类口径与 stream_chat 保持一致（7 类 error_class）。
+        """
 
 
 # --------------------------------------------------------------------------- #

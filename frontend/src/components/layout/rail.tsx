@@ -9,6 +9,7 @@ import {
   Images,
   Settings,
   Network,
+  Compass,
   PanelLeftClose,
   PanelLeftOpen,
   Sun,
@@ -26,6 +27,7 @@ interface RailItem {
 const NAV_ITEMS: RailItem[] = [
   { to: '/', label: '内容库', icon: Folder, end: true },
   { to: '/sessions', label: '会话', icon: MessageSquare },
+  { to: '/worlds', label: '剧情世界', icon: Compass },
   { to: '/assets', label: '素材', icon: Images },
   { to: '/settings', label: '设置', icon: Settings },
 ];

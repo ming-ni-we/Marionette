@@ -20,6 +20,7 @@ from app.api.v1 import (
     system,
     telemetry,
     worldbooks,
+    worlds,
 )
 from app.api.v1 import (
     config as config_routes,
@@ -38,6 +39,7 @@ for _module in (
     cards,
     worldbooks,
     presets,
+    worlds,
     sessions,
     images,
     assets,

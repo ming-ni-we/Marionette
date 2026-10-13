@@ -25,7 +25,8 @@ export function PresetEditorPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const isNew = id === 'new';
+  // 路由 /presets/new 命中静态段后 useParams() 为空 → id=''，同样视为新建
+  const isNew = !id || id === 'new';
 
   const query = useQuery({
     queryKey: ['preset', id],
