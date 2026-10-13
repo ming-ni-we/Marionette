@@ -3,6 +3,7 @@ dist
 dist-ssr
 dist-debug
 .smoke-bundle.mjs
+.s14-bundle.mjs
 *.local
 .vite
 *.tsbuildinfo
