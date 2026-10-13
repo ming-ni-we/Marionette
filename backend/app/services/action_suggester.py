@@ -35,8 +35,17 @@ DEFAULT_COUNT = 3
 #: 建议数上限，防止模型返回一屏
 MAX_COUNT = 4
 
-#: 采样参数：要具体、要不重复，但不需要长
-_SUGGEST_PARAMS: dict[str, Any] = {"temperature": 0.8, "max_tokens": 200}
+#: 采样参数：要具体、要不重复，但不需要长。
+#:
+#: `max_tokens` 曾为 200 —— 与导演的同款问题（见 `director._DIRECTOR_PARAMS` 注释）：
+#: 3 条建议的 JSON（label + hint + tone × 3，中文）很容易写超 200 被截断，
+#: `_extract_actions_json` 拿不到闭合括号 → 判为不可解析 → L2 重试同样截断
+#: → 最终 `degraded`，且当 `use_fallback=False` 时**直接返回空列表**，
+#: 前端表现为「行动建议区整个消失」，玩家与开发者都看不到任何报错。
+#:
+#: 实测线上（2026-10-13）《木叶·雾中之刃》连续 4 轮 actions 全空。
+#: 提高后建议稳定产出。
+_SUGGEST_PARAMS: dict[str, Any] = {"temperature": 0.8, "max_tokens": 400}
 
 #: response_format（端点不支持时降级重试）
 _JSON_FORMAT: dict[str, Any] = {"type": "json_object"}

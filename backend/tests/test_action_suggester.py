@@ -177,9 +177,18 @@ class TestFailurePaths:
         assert isinstance(actions, list)
 
     async def test_low_token_params(self) -> None:
+        """max_tokens 由常量决定，且必须留足余量。
+
+        曾写死 == 200 —— 正是这个断言让「建议 JSON 被截断导致建议区消失」
+        的缺陷无法被修正（见 TestSuggestTokenHeadroom）。
+        """
+        from app.services.action_suggester import _SUGGEST_PARAMS
+
         router = _StubRouter([VALID])
         await ActionSuggesterSvc(router=router).suggest(**_kwargs())
-        assert router.calls[0]["params"]["max_tokens"] == 200
+        params = router.calls[0]["params"]
+        assert params["max_tokens"] == _SUGGEST_PARAMS["max_tokens"]
+        assert params["max_tokens"] >= 400
 
 
 # --------------------------------------------------------------------------- #
@@ -319,3 +328,21 @@ class TestBuildPrompt:
     def test_all_tones_documented_in_system(self, tone: str) -> None:
         system = build_suggest_prompt(**_kwargs())[0].content
         assert tone in system
+
+
+# --------------------------------------------------------------------------- #
+# 回归：max_tokens 余量（与 director 同款缺陷）
+# --------------------------------------------------------------------------- #
+class TestSuggestTokenHeadroom:
+    """守护「建议 JSON 被 max_tokens 截断 → 静默返回空列表」。
+
+    背景（2026-10-13 线上）：max_tokens 原为 200。3 条中文建议的 JSON 极易
+    写超被截断，解析失败后若 use_fallback=False 就直接返回 []，
+    前端表现为建议区整个消失，无任何报错。
+    """
+
+    def test_max_tokens_has_headroom(self) -> None:
+        from app.services.action_suggester import _SUGGEST_PARAMS
+
+        # 200 是已证实不足的值，设下限 400 防回退。
+        assert _SUGGEST_PARAMS["max_tokens"] >= 400
