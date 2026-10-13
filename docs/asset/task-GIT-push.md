@@ -30,6 +30,9 @@ export GITHUB_TOKEN=<你的 fine-grained PAT>     # 需 Contents: Read and write
 
 > 脚本会自动：同步工作目录 → 敏感文件防线 → 五项校验全绿 → 提交 → 推送 → 核对远端 SHA。
 > 下文是**手工流程**，保留作为原理参考与故障兜底。
+>
+> 💡 **不想把 PAT 交给沙箱？** 用 [方案 C](#方案-c--用-bundle-手工搬运不想把-pat-交给沙箱时用这条) 的现成 bundle
+> （`/workspace/marionette-main.bundle`），在你自己有登录态的机器上推，效果完全相同。
 
 ---
 
@@ -241,18 +244,36 @@ git push https://<TOKEN>@github.com/ming-ni-we/Marionette.git main
 > ⚠️ 安全提示：Token 是敏感凭据。若通过对话传递，**推送完成后立即吊销**。
 > 建议用一次性细粒度 Token 并限定仅该仓库。
 
-**方案 C · 用 patch / bundle 手工搬运**
+**方案 C · 用 bundle 手工搬运（不想把 PAT 交给沙箱时用这条）**
 
-现成产物（对应提交 `c9f6da5`，**不含 S1–S12 的新改动**）：
+🍱 **现成的完整 bundle**（2026-10-13 11:41 生成，含 S1–S12 与全部资产文档）：
 
-```bash
-git am /workspace/marionette-git-runtime.patch
-# 或
-git fetch /workspace/marionette-c9f6da5.bundle main:c9f6da5-local
-git merge --ff-only c9f6da5-local
+```
+/workspace/marionette-main.bundle     1.1 MB     HEAD = main
 ```
 
-> 这两个现成产物**只到 S11 之前**，不能替代步骤 1–3 的新提交。
+`git bundle verify` 输出 `The bundle records a complete history.` —— **可独立克隆，不依赖原仓库**。
+
+在你**自己的机器**上（那里有 GitHub 登录态）执行：
+
+```bash
+# 方式 1：当远程仓库 clone 出来再推
+git clone /path/to/marionette-main.bundle Marionette
+cd Marionette
+git remote set-url origin https://github.com/ming-ni-we/Marionette.git
+git push origin main
+
+# 方式 2：在既有克隆里 fetch + fast-forward
+git fetch /path/to/marionette-main.bundle main:bundle-main
+git merge --ff-only bundle-main
+git push origin main
+```
+
+> 🔴 **bundle 是快照，会随代码更新而过期**。
+> 重新生成：`git -C /workspace/marionette-git bundle create /workspace/marionette-main.bundle main`
+
+**历史遗留产物**（对应 `c9f6da5`，**只到 S11 之前，已过时**）：
+`/workspace/marionette-c9f6da5.bundle`、`/workspace/marionette-git-runtime.patch` —— 仅作参考，不要用。
 
 ---
 
