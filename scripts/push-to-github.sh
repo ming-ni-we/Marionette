@@ -154,7 +154,14 @@ else
     step_fail "SSE 契约校验"
   fi
 
-  # 2.5 冒烟
+  # 2.5 剧情创建请求体契约（空串 card/preset 会被后端 422/400/404）
+  if (cd "$VERIFY_DIR/frontend" && npm run verify:story-create >/dev/null 2>&1); then
+    ok "verify:story-create：剧情创建入参符合后端契约"
+  else
+    step_fail "剧情创建契约校验"
+  fi
+
+  # 2.6 冒烟
   if (cd "$VERIFY_DIR/frontend" && node scripts/smoke.mjs >/dev/null 2>&1); then
     ok "smoke：全 PASS"
   else
@@ -166,7 +173,7 @@ else
     die "校验未通过：${FAILED[*]}
      —— 已中止，**未产生任何提交**。修好后重跑。"
   fi
-  ok "五项校验全绿"
+  ok "六项校验全绿"
 fi
 
 if [ "$CHECK_ONLY" -eq 1 ]; then

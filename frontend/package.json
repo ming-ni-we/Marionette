@@ -10,9 +10,11 @@
     "typecheck": "tsc --noEmit",
     "preview": "vite preview",
     "verify:sse": "node scripts/check-sse-contract.mjs",
+    "verify:story-create": "node scripts/check-story-create.mjs",
     "verify:icons": "node scripts/verify-icons.mjs",
     "scan:p0": "python scripts/scan-p0.py",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "verify": "npm run typecheck && npm run verify:sse && npm run verify:story-create && npm run smoke"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.0",

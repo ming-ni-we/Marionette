@@ -2,6 +2,7 @@ import type { Session } from '@/api/types';
 import { SAMPLE_CARDS } from './cards';
 import { SAMPLE_PRESETS } from './presets';
 import { SAMPLE_WORLDBOOKS } from './worldbooks';
+import { SAMPLE_WORLDS } from './worlds';
 import { T0, T1 } from './shared';
 
 export const SAMPLE_SESSIONS: Session[] = [
@@ -102,5 +103,39 @@ export const SAMPLE_SESSIONS: Session[] = [
     memory: { rolling_summary: '', summary_upto_message_id: null, facts: [] },
     created_at: T0,
     updated_at: T0,
+  },
+  /**
+   * 剧情会话演示数据（S13）。
+   *
+   * 与 `SAMPLE_WORLDS[0]` 是同一个故事：`world_id` 指向它，
+   * `scene` 用 `SceneStory` 形态（在场角色 / 上一说话者 / 拍点）。
+   *
+   * 会话列表必须能靠 `spec` 把它和上面两条 1v1 区分开，并跳到 `/stories/:id`。
+   * 保留空 `messages`：真实剧情会话开局时后端才铺序幕，
+   * 列表页不该假设它已经有内容。
+   */
+  {
+    id: 's1f0a1e2-0003-4d03-9c03-000000000003',
+    spec: 'story_session',
+    spec_version: '1.0',
+    character_card_id: '',
+    preset_id: SAMPLE_PRESETS[0].id,
+    world_id: SAMPLE_WORLDS[0].id,
+    worldbook_ids: [],
+    user_persona: { name: '你', description: '路过旧城区的年轻人。' },
+    status: 'active',
+    state_machine: { current: 'idle', turn: 2, version: 3, last_error: null },
+    scene: {
+      location: '未名书店',
+      time: '梅雨季 · 傍晚',
+      mood: '潮湿、安静',
+      summary: '第二拍：公告贴到了巷口。',
+      bg_asset_id: null,
+    },
+    messages: [],
+    triggered_entries: {},
+    memory: { rolling_summary: '', summary_upto_message_id: null, facts: [] },
+    created_at: T1,
+    updated_at: T1,
   },
 ];

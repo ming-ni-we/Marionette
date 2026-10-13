@@ -276,9 +276,33 @@ class TestCreateDispatch:
 
     @pytest.mark.asyncio
     async def test_story_opening_message_has_beat_role(
-        self, db: AsyncSession, card_and_preset: tuple
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """序幕必须落库且带 `beat_role=opening`；本用例专测 **L2 降级分支**。
+
+        ⚠️ 这里必须**显式**让 LLM 不可用，不能依赖"环境里恰好没有上游"。
+        历史的写法是在注释里写"沙箱无上游"然后断言降级文案 —— 一旦在有真实
+        `LLM_API_KEY` 的环境（线上容器）跑，`OpeningSvc` 会真的调通模型、
+        返回一段 AI 生成的序幕，断言随即失败。那是**测试的假设失效**，
+        不是产品缺陷。显式注入失败 router 后，本用例在任何环境都测同一分支。
+        """
+        from app.services.opening import OpeningSvc
         from app.services.session import SessionSvc
+
+        class _AlwaysFailRouter:
+            """任何调用都抛错 —— 逼 `OpeningSvc._try` 返回 None，走 L2 降级。"""
+
+            def __init__(self, *a: Any, **k: Any) -> None:
+                pass
+
+            async def complete(self, *a: Any, **k: Any) -> str:
+                raise RuntimeError("test: LLM deliberately unavailable")
+
+        monkeypatch.setattr(
+            OpeningSvc, "__init__", lambda self, db=None, router=None: setattr(
+                self, "_router", _AlwaysFailRouter()
+            )
+        )
 
         card_id, preset_id = card_and_preset
         world = await WorldSvc(db).create(WORLD_INPUT)
@@ -290,7 +314,7 @@ class TestCreateDispatch:
         assert messages, "序幕必须至少落一条消息"
         assert all(m["meta"]["beat_role"] == "opening" for m in messages)
         assert all(m["role"] == "assistant" for m in messages)
-        # 无 LLM（沙箱无上游）→ 走降级：world.opening + card.first_mes
+        # LLM 不可用 → 走 L2 降级：world.opening 打头
         assert messages[0]["content"] == "雨敲着铁皮棚。"
 
     @pytest.mark.asyncio

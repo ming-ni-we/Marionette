@@ -164,7 +164,7 @@ const ROUTES = [
   { path: '/presets/new', expect: /预设|采样|温度|参数/ },
   { path: '/worlds', expect: /剧情世界|世界|新建世界/ },
   { path: '/worlds/new', expect: /基本信息|世界名称|角色群/ },
-  { path: '/sessions', expect: /会话|新建会话|演示数据/ },
+  { path: '/sessions', expect: /会话|新建会话|演示数据|剧情/ },
   { path: '/assets', expect: /素材|图集|出图|归档/ },
   { path: '/settings', expect: /设置|审核|模型后端|诊断/ },
   { path: '/this/route/does/not/exist', expect: /没有对应的页面|内容库/ },
