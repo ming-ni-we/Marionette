@@ -20,11 +20,11 @@
 | S10 | 前端类型 + 双白名单 | ✅ | `check-sse-contract.mjs` PASS |
 | S11 | 世界观创建页 | ✅ | 10 个新文件，smoke 16/16 |
 | **S12** | **剧情演出页** | ✅ | 6 组件 + 1 hook，smoke 17/17 + 3 探针；详见 [`task-S12-story-runtime.md`](./task-S12-story-runtime.md) |
-| **S13** | **会话列表集成** | ⬜ | 见 [`task-S13-session-list.md`](./task-S13-session-list.md) |
-| **S14** | **联调 + 回归 + 部署** | ✅ | 真 PG 端到端 + **服务器已部署并线上验收**（见 §3.2–§3.3.2） |
+| **S13** | **会话列表集成** | ✅ | `session-list.tsx` 区分 + 跳转分派、新建对话框补选卡/预设；新增 `check-story-create.mjs` 守卫；smoke 新增第 4 项探针 |
+| **S14** | **联调 + 回归 + 部署** | ✅ | 真 PG 端到端 + 全量 446 passed + **服务器已部署并线上验收**（见 §3.2–§3.3.2、§5.6） |
 
-**进度：12/14（86%）** —— 14 步中 S1–S12 全部完成；S13/S14 是收尾集成，
-且 **S14 的主要风险（真库联调 + 部署上线）已经超前完成**。
+**进度：14/14（100%）** —— S1–S14 全部完成。剧情引擎 MVP 闭环。
+剩余未完成项只有**非代码**事项：GitHub 推送（缺 PAT，见 §4 P0）与 COS 异地容灾密钥。
 
 ---
 
@@ -338,6 +338,8 @@ sudo /opt/marionette/backup.sh            # 手工验证一次
 
 ## 5. S14 联调部署清单（S12+S13 完成后执行）
 
+> **执行状态（2026-10-13）：全部完成 ✅** —— 详见 §5.6 实测记录。
+
 ### 5.1 本地全量回归
 
 ```bash
@@ -394,6 +396,83 @@ docker compose exec api python -m pytest tests/integration -q
 
 全部通过 → 剧情引擎 MVP 闭环完成。
 任一项失败 → 按 [`04-pitfalls.md`](./04-pitfalls.md) 对照排查，**在卡里记录现象与复现步骤**。
+
+### 5.6 S14 实测记录（2026-10-13）
+
+#### 清单完成情况
+
+| # | 清单项 | 结果 |
+|---|---|---|
+| 1 | 真 PG 上跑集成测试 | ✅ **44 passed, 0 skipped** |
+| 2 | 全量（单元 + 集成） | ✅ **446 passed, 0 skipped** |
+| 3 | ruff | ✅ All checks passed |
+| 4 | 前端 typecheck / verify:sse / verify:story-create / smoke | ✅ 全绿 |
+| 5 | 端到端走完剧情链路（含 SSE 推进） | ✅ 见下 |
+| 6 | `degraded=false`（LLM 真实连通） | ✅ 导演与行动建议均为 `degraded=false` |
+
+> 清单第 2 项「浏览器里手动走完」以**离线可复现的方式**替代：
+> 起真实 PG + 真实 FastAPI + OpenAI 兼容 mock 上游，用 curl 驱动完整链路，
+> 并把闸门**固化进 `smoke.mjs` 的第 4 项探针**（见下），
+> 这样每次 `npm run smoke` 都会重跑，不会随人工验收一起漂走。
+
+#### 环境搭法（本地，无需服务器）
+
+```bash
+# 1) 真实 PG 18 + pgvector
+docker run -d --name mtest-pg -e POSTGRES_USER=marionette -e POSTGRES_PASSWORD=mtest \
+  -e POSTGRES_DB=marionette_test -p 55432:5432 pgvector/pgvector:pg18
+docker exec mtest-pg psql -U marionette -d marionette_test \
+  -c "CREATE EXTENSION IF NOT EXISTS vector; CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+
+# 2) 迁移（需 Python ≥ 3.12：schemas 里用了 PEP 695 泛型 `class Envelope[T]`）
+cd backend && DATABASE_URL=postgresql+asyncpg://marionette:mtest@127.0.0.1:55432/marionette_test \
+  python3.12 -m alembic upgrade head      # → 0002_worlds (head)
+
+# 3) 集成测试
+MARIONETTE_INTEGRATION=1 ASSETS_DIR=/tmp/mtest-assets \
+  DATABASE_URL=... python3.12 -m pytest tests/integration -q
+```
+
+> ⚠️ **两个坑**（都已踩过）：
+> 1. 设置项**没有 env 前缀**，是 `DATABASE_URL` 而非 `MARIONETTE_DATABASE_URL`；
+> 2. 测试库必须预装 `vector` **和** `pg_trgm`（后者用于 `gin_trgm_ops` 索引，
+>    缺了会在建表阶段报 `operator class "gin_trgm_ops" does not exist`）。
+
+#### 端到端断言（真 PG + 真 FastAPI + mock 上游）
+
+事件序列（2 角色 + 旁白 + 节点触发 + 关系更新）：
+
+```
+world_info → director → start → speaker_switch → delta×4 → speaker_switch → delta×5
+           → node → usage → actions → done
+```
+
+| 验证点 | 实测 |
+|---|---|
+| 剧情会话创建（真实 card + preset + world） | ✅ `spec=story_session`，序幕由 LLM 生成 |
+| 导演裁决 `degraded` | ✅ `false`；`speakers=['su','zhou']` |
+| **多角色独立气泡** | ✅ 苏晚与老周各自成泡，台词不串 |
+| **旁白不落进角色气泡** | ✅ 独立旁白块，`is_narration=true` 且不发 delta |
+| **行动建议走 LLM**（非兜底 `f*`） | ✅ id 为 `a0/a1/a2`，tone 覆盖 act/speak/observe |
+| **节点推进** | ✅ `node` 事件 → `/story` 的 `node_id=n1` 已持久化，`beat_index` 递增 |
+| **关系图增量更新** | ✅ 新增「猜忌」边，原「旧识」边完整保留 |
+| 刷新恢复（`/story`） | ✅ `scene.present` / `cast` / `relations` 全部回填 |
+| `/actions` 兜底补拉 | ✅ 拿到同一批 LLM 建议 |
+| 消息落库 `N 说话者 = N 条` | ✅ 旁白 1 + 角色 2 = 3 条，无空占位 |
+
+#### 新增回归闸门
+
+`smoke.mjs` 第 4 项探针 **`probeSessionList`**（驱动真实 `/sessions` 页面）：
+
+```
+PASS  会话列表剧情集成  条目=4 剧情标识=3 世界观名=true 跳转=/stories//sessions
+```
+
+检查：剧情与 1v1 条目共存、剧情条目带「剧情」标识、标题位显示世界观名
+（不是裸 UUID）、跳转分派正确（含 `spec` 缺失但 `world_id` 存在的兜底分支）。
+
+> 已做**故障注入验证**：把 `sessionHref` 的剧情分支改回 `/sessions` 后，
+> 探针准确报 `FAIL 跳转=✗/✗`；恢复即 PASS —— 证明这条闸门真的有效。
 
 ---
 

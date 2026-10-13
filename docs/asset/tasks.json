@@ -215,7 +215,6 @@
       "blocked_by": [
         "S12"
       ],
-      "block_reason": "需 /stories/:id 路由存在；且双方都要改 App.tsx",
       "owns_files": [
         "frontend/src/pages/session-list.tsx"
       ],
@@ -230,7 +229,14 @@
       ],
       "status": "pending",
       "evidence_not_started": "session-list.tsx(292行) 全文无 story_session/world；new-session-dialog.tsx 不处理世界观",
-      "route_ready": "App.tsx:55 已有 /stories/:id -> StoryRuntimePage"
+      "route_ready": "App.tsx:55 已有 /stories/:id -> StoryRuntimePage",
+      "state": "done",
+      "evidence": [
+        "frontend/src/pages/session-list.tsx 导出 isStorySession/sessionHref + 模式筛选",
+        "frontend/scripts/check-story-create.mjs 新增守卫（故障注入已验证）",
+        "smoke.mjs 第 4 项探针 probeSessionList"
+      ],
+      "note": "任务卡里的 character_card_id:'' 是错的；后端两字段均为必填 UUID"
     },
     {
       "id": "INFRA",
@@ -289,14 +295,12 @@
     },
     {
       "id": "GIT",
-      "title": "推送代码到 GitHub（S1–S12 已提交 1d41b70，只差 PAT）",
+      "title": "推送代码到 GitHub（S1–S13 已提交，只差 PAT）",
       "card": "task-GIT-push.md",
       "priority": 1,
       "parallel_safe": true,
-      "blocked_by": [
-        "S13"
-      ],
-      "block_reason": "流程上等 S13 完成后一起推（用户 2026-10-13 11:45 决策，非技术阻塞）；技术上唯一阻塞仍是 GITHUB_TOKEN：本环境所有通道均无代码写权限——MCP 只读、连接器 OAuth token 无 repo scope（x-oauth-scopes 为空 → git push 403 denied to ming-ni-we）、gh 未登录、credential helper 返回空。如需提前推，随时可单独执行。",
+      "blocked_by": [],
+      "block_reason": "S13 已完成，流程性等待解除；技术上唯一阻塞仍是 GITHUB_TOKEN（本环境所有通道均无写权限）",
       "owns_files": [
         "/workspace/marionette-git"
       ],
@@ -328,7 +332,10 @@
         "decision": "等 S13 完成后一起推；如需提前推可随时单独执行",
         "alternative": "/workspace/marionette-main.bundle（1.1MB 完整历史快照，免 PAT 搬运；会随提交过期，需重新生成）"
       },
-      "next_command": "cd /workspace/marionette && export GITHUB_TOKEN=<PAT> && ./scripts/push-to-github.sh --dry-run \"feat(story): S1–S12\" && ./scripts/push-to-github.sh \"feat(story): S1–S12\""
+      "next_command": "cd /workspace/marionette && export GITHUB_TOKEN=<PAT> && ./scripts/push-to-github.sh --dry-run \"feat(story): S1–S12\" && ./scripts/push-to-github.sh \"feat(story): S1–S12\"",
+      "commits": "df97c19（S1–S12）→ d77ab88（S13）→ 48c69ba（S14 探针）→ 25a586e（清理）→ 后续资产提交",
+      "synced": "✅ 已进 git 仓库，工作区干净",
+      "pending": "只有 git push 未执行（缺 PAT）；本地待推提交数用 check_cmd 实测，勿写死"
     },
     {
       "id": "S14",
@@ -336,9 +343,12 @@
       "card": "07-status-and-backlog.md#5-s14-联调部署清单",
       "priority": 4,
       "parallel_safe": false,
-      "blocked_by": [
-        "S12",
-        "S13"
+      "state": "done",
+      "evidence": [
+        "真 PG 集成 44 passed / 全量 446 passed",
+        "端到端 SSE 剧情链路（多角色气泡 + 节点推进 + 关系更新）",
+        "服务器已部署并线上验收",
+        "smoke 新增会话列表探针"
       ]
     }
   ],
