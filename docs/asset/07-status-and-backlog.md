@@ -744,6 +744,27 @@ cd /opt/marionette && sudo docker compose up -d --no-deps --force-recreate api
 
 验收截图：`/workspace/验收截图-火影剧情.png`。
 
+#### 5.9.4 独立复验：线上冒烟脚本（2026-10-13 收尾）
+
+新增 `scripts/naruto-smoke.py` —— 一条命令跑完「登录 → 建剧情会话 → 开演 → 一轮对话」，
+断言**导演零降级 + 多角色 + 节点触发 + 建议非空**。末尾输出 `✅ PASS / ❌ FAIL`。
+（开演 = 发一条 `{"input": ""}` 到 `/sessions/{id}/stream`。）
+
+线上复验结果（`f53bbc95`，与 5.9.3 独立的一轮）：
+
+| 判据 | 结果 |
+|---|---|
+| 登录 / 建会话 | 200 / 201（`spec=story_session`） |
+| 开演 SSE | 314 个事件，无 error |
+| 导演降级 | **`degraded=False`** |
+| 多角色派发 | **一次派发三人**（卡卡西 + 樱 + 佐助），各带独立 `intent` + `direction` |
+| 节点触发 | `node_triggered = n1`（D级·第17号哨站失踪报告） |
+| 行动建议 | 恢复且高质量（`speak`/`act` 等 `tone` 分类齐全，内容贴合当轮剧情） |
+| 佐助人设 | direction =「极简短，先『哼』一声，视线始终不离开雾」—— 零 OOC |
+
+> **口令踩坑**：SSH 口令 ≠ 应用访问口令。冒烟脚本首次误用 SSH 口令 POST `/auth/login` 得到 401。
+> 应用口令在服务器 `/opt/marionette/.env` 的 `ACCESS_PASSWORD`，取法见 `03-deployment.md` §1。
+
 > **教训（见 D12 全文）**：
 > 1. 非流式 JSON 调用必须给 `max_tokens` 留足头room —— 截断**静默降级**，比抛异常难查。
 > 2. 单测**不要断言具体参数值**，要断言意图（下限）—— 钉死数值会把缺陷焊死在测试里。
