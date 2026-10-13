@@ -9,7 +9,7 @@
 
 ## ✅ 已就绪：现在只需一条命令
 
-**S1–S12 已同步进本地 git 仓库并完成预提交**（`df97c19`），五项校验全绿。
+**S1–S12 + 项目资产文档已同步进本地 git 仓库并完成提交**（最新 `1d41b70`），五项校验全绿。
 **唯一缺的是 GitHub 写凭据。**
 
 ```bash
@@ -18,6 +18,9 @@ export GITHUB_TOKEN=<你的 fine-grained PAT>     # 需 Contents: Read and write
 ./scripts/push-to-github.sh --dry-run "feat(story): S1–S12"   # 先试推确认权限
 ./scripts/push-to-github.sh "feat(story): S1–S12"             # 通过后正式推
 ```
+
+> ⚠️ **别再重复提交**：本地已有 3 个待推提交（`c9f6da5` / `df97c19` / `1d41b70`）。
+> 拿到 token 后若工作区无新改动，脚本会跳过提交直接推送 —— 这是**正确行为**，不是失败。
 
 > 脚本会自动：同步工作目录 → 敏感文件防线 → 五项校验全绿 → 提交 → 推送 → 核对远端 SHA。
 > 下文是**手工流程**，保留作为原理参考与故障兜底。
@@ -46,22 +49,26 @@ GitHub 上现在只有 `c9f6da5`（S11 之前）。**所有从 GitHub 取码的�
 
 ---
 
-## 当前状态（2026-10-12 核实）
+## 当前状态（2026-10-13 11:32 核实）
 
 | 项 | 状态 |
 |---|---|
 | git 工作仓库 | `/workspace/marionette-git`（**注意：不是** `/workspace/marionette`） |
-| 本地最新提交 | `c9f6da5` — `feat(runtime): 运行时引擎全量实现 + 前端设计精修` |
-| 工作区 | 干净（`git status` 无输出） |
-| 远程读权限 | ✅ 正常 |
-| 远程写权限 | ❌ **403**（沙箱无凭据） |
-| 与远程的关系 | 远程 `main` 停在 `3ac1cc3`（`c9f6da5` 的父提交） |
+| 本地最新提交 | `1d41b70` — `feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）` |
+| 工作区 | 干净（`git status --porcelain` 无输出） |
+| 五项校验 | ✅ 全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke） |
+| 远程读权限 | ✅ 正常（`git fetch` 成功） |
+| 远程写权限 | ❌ **403 —— 实测连"连接器 OAuth token"也推不动**（见下节） |
+| 与远程的关系 | 远程 `main` 停在 `3ac1cc3`；本地**领先 3 个提交**，落后 0（可 fast-forward） |
 
 **提交链**：
 
 ```
+1d41b70  feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）  ← 未推送（含 08/09 等资产文档）
+df97c19  feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）  ← 未推送
 c9f6da5  feat(runtime): 运行时引擎全量实现 + 前端设计精修     ← 未推送
-3ac1cc3  docs(memory): 补记 git push 卡死坑 + 交接文档上传通道结论
+3ac1cc3  docs(memory): 补记 git push 卡死坑 + 交接文档上传通道结论   ← 远端当前位置
+```
 06ae597  docs: 交接文档定稿 + 记忆沉淀（新增 4 条坑）
 be693ad  fix: 修掉「集成测试直连生产库」等 4 类缺陷
 98d718a  feat(backend): Phase 3 第一波 —— 创作侧实现
@@ -245,16 +252,82 @@ git merge --ff-only c9f6da5-local
 
 | 通道 | 结果 |
 |---|---|
-| git 直接推送 | `fatal: could not read Username`（terminal prompts disabled） |
-| `gh` CLI | `You are not logged into any GitHub hosts` |
-| 环境变量 | `GITHUB_TOKEN` / `GH_TOKEN` / `GIT_TOKEN` / `GH_PAT` 均未设置 |
-| `~/.git-credentials` | 文件不存在 |
+| git 直接推送（无凭据） | `fatal: could not read Username`（terminal prompts disabled） |
+| `gh` CLI | `You are not logged into any GitHub hosts`（2026-10-13 复测，仍未登录） |
+| 环境变量 | `GITHUB_TOKEN` / `GH_TOKEN` / `GIT_TOKEN` / `GH_PAT` 均未预设 |
+| `~/.git-credentials` / `~/.netrc` | 均不存在 |
 | git-credential-helper | 实测 `get` 返回空；逆向发现它请求 `{IDE_EDITOR_SERVER}/api/v1/git/credentials`，依赖编辑器服务的 GitHub 登录态 |
 | 编辑器服务凭据端点 | 已定位 `editor_sdk`（`127.0.0.1:39099`），穷举 15 种路径组合，**全部 `Unknown endpoint`** → 该版本未实现凭据转发 |
 | GitHub MCP 集成 | 已认证为仓库属主，但**写接口 403**：`push_files` / `create_or_update_file` 均 `Resource not accessible by integration` |
+| **GitHub 连接器 OAuth token**（2026-10-13 新增实测） | 能拿到 `ghu_` token、身份确认为仓库属主，**但 `git push` 仍 403**（详见下节） |
 
-**结论**：MCP 是**只读** GitHub App 集成；编辑器服务的凭据通道在本环境**未启用**。
-**这不是代码或提交的问题，是环境缺少写入凭据。**
+**结论**：本环境**所有**可用的 GitHub 通道都**只有读权限，没有代码写权限**。
+**这不是代码或提交的问题，是环境缺少写入凭据。** 唯一解法是外部提供一个带
+`Contents: Read and write` 的 PAT。
+
+---
+
+## 🧪 2026-10-13 实测：连接器 OAuth token 为什么推不动
+
+这一条**专门记给后续任务看**，避免再花一轮时间重新试一遍。
+
+### 现象
+
+用连接器脚本拿到 token 后跑完整发布流程：
+
+```
+✓ pytest：402 passed, 44 sk
+✓ ruff：All checks passed
+✓ tsc：0 错误
+✓ verify:sse：三处白名单同构
+✓ smoke：全 PASS
+✓ 五项校验全绿
+✓ 已提交：1d41b70 feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）
+✗ remote: Permission to ming-ni-we/Marionette.git denied to ming-ni-we.
+  fatal: unable to access 'https://github.com/ming-ni-we/Marionette.git/':
+         The requested URL returned error: 403
+```
+
+注意措辞：**`denied to ming-ni-we`** —— 认证成功（认出了你就是属主），
+但**该凭据没有被授予写代码的权限**。
+
+### 根因
+
+```bash
+curl -sI -H "Authorization: Bearer $TOKEN" https://api.github.com/user | grep -i x-oauth-scopes
+# x-oauth-scopes:            ← 空
+# x-accepted-oauth-scopes:   ← 空
+```
+
+连接器发的是 **GitHub OAuth App 的 user-to-server token**（`ghu_` 前缀，40 字符），
+该 App 授权时**没有申请 `repo` / `public_repo` scope**，所以 scopes 列表为空。
+`git push` 走 Basic 认证，必须带 `repo`（或 `public_repo`）scope，于是 403。
+
+### 🔴 一个极易误判的陷阱（务必记住）
+
+同样是这个 token，调 API 会返回：
+
+```json
+GET /repos/ming-ni-we/Marionette
+→ "permissions": { "admin": true, "maintain": true, "push": true, "triage": true, "pull": true }
+```
+
+**看到 `push: true` 很容易以为"能推"，其实是错的。**
+`permissions` 字段描述的是**你这个用户**对仓库的权限，不是**这张 token** 的 scope。
+判断 token 能不能写代码，唯一可靠的是：
+
+```bash
+curl -sI -H "Authorization: Bearer $TOKEN" https://api.github.com/user | grep -i x-oauth-scopes
+# 空 → 不能推。含 repo / public_repo → 能推。
+```
+
+（或者干脆 `git push --dry-run`，让 GitHub 自己告诉你。）
+
+### 副作用（无害）
+
+校验全绿但推送失败 → **`1d41b70` 提交已留在本地**。这是好事：
+项目资产文档（08/09/README 等）也一并进了版本历史。
+拿到 PAT 后直接推，**不需要重新提交**。
 
 ---
 

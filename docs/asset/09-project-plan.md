@@ -27,7 +27,7 @@
 | **M1** | 剧情引擎后端 + 前端（S1–S12） | ✅ **已完成并上线** | — |
 | **M2** | 会话列表接入剧情（S13） | ⬜ **未开始** | — |
 | **M3** | 全链路联调 + 回归（S14） | 🟡 一半 | S13 |
-| **M4** | 代码同步 GitHub | ⬜ **就绪待推** | **GITHUB_TOKEN** |
+| **M4** | 代码同步 GitHub | 🟡 **就绪待推**（本地 `1d41b70`，3 个提交未上远端） | **PAT**（连接器已证无效） |
 | **M5** | 基础设施加固 | 🟡 部分 | 密钥 / 域名 |
 
 ---
@@ -90,12 +90,14 @@
 
 | 项 | 状态 |
 |---|---|
-| S1–S12 同步进 git 仓库 | ✅ 已完成（本地提交 `df97c19`） |
+| S1–S12 + 资产文档同步进 git 仓库 | ✅ 已完成（本地提交 `1d41b70`） |
 | 代码规模核对 | ✅ 90 个 backend `.py` / 126 个前端 `.ts/.tsx` |
-| 五项校验 | ✅ 全绿 |
+| 五项校验 | ✅ 全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke） |
 | 敏感文件防线 | ✅ 通过（无 `.env` / `.backup-env` / 私钥） |
 | MCP GitHub connector | ❌ **实测只读**（`push_files` → 403 `Resource not accessible by integration`） |
-| **`GITHUB_TOKEN`** | ⏳ **缺 —— 唯一阻塞项** |
+| GitHub 连接器 OAuth token | ❌ **实测无 `repo` scope**（`x-oauth-scopes` 为空 → `git push` 403 `denied to ming-ni-we`） |
+| 与远端的关系 | 本地领先 **3** 个提交（`c9f6da5`/`df97c19`/`1d41b70`），落后 0，可 fast-forward |
+| **`GITHUB_TOKEN`（PAT）** | ⏳ **缺 —— 唯一阻塞项** |
 
 **一条命令完成**：
 ```bash
@@ -104,6 +106,10 @@ export GITHUB_TOKEN=<fine-grained PAT，Contents: Read and write>
 ./scripts/push-to-github.sh --dry-run "feat(story): S1–S12"   # 先试推
 ./scripts/push-to-github.sh "feat(story): S1–S12"             # 正式推
 ```
+
+> ⚠️ **已穷尽本环境所有通道**（2026-10-13 实测）：MCP 只读、连接器 OAuth token 无
+> `repo` scope、`gh` 未登录、credential helper 返回空。**不要再花时间重试这些**，
+> 直接要 PAT 是唯一路径。详见 [`task-GIT-push.md`](./task-GIT-push.md)。
 
 **完成后**：本项关闭，且 [`task-GET-CODE.md`](./task-GET-CODE.md) §2 的「GitHub 落后」高危坑**自动消失**。
 

@@ -84,6 +84,27 @@ export GITHUB_TOKEN=github_pat_xxxxxxxx
 > - 传过对话的 token，**用完立即吊销**
 > - 绝不把 token 写进任何入库文件
 
+### 4.1 ⚠️ 别指望"连接器授权"能顶替 PAT（2026-10-13 实测）
+
+本环境的 GitHub 连接器能发一张 OAuth token（`ghu_` 前缀），身份确实是仓库属主，
+**但它没有申请 `repo` scope，`git push` 必然 403**：
+
+```
+remote: Permission to ming-ni-we/Marionette.git denied to ming-ni-we.
+fatal: unable to access '...': The requested URL returned error: 403
+```
+
+验证一条命令就够：
+
+```bash
+curl -sI -H "Authorization: Bearer $TOKEN" https://api.github.com/user | grep -i x-oauth-scopes
+# 输出为空 → 推不动，别再试了，去拿 PAT
+```
+
+> 🔴 **陷阱**：`GET /repos/{owner}/{repo}` 返回的 `permissions.push: true`
+> 说的是**你这个用户**对仓库的权限，**不是这张 token 的 scope**。别被它骗了。
+> 详见 [`task-GIT-push.md`](./task-GIT-push.md) §「连接器 OAuth token 为什么推不动」。
+
 ---
 
 ## 5. 「全绿」的标准是什么
@@ -143,16 +164,20 @@ git -C /workspace/marionette-git ls-remote origin refs/heads/main
 | 项 | 状态 |
 |---|---|
 | `scripts/push-to-github.sh` | ✅ 已写好并通过故障注入测试 |
-| S1–S12 同步进 git 仓库 | ✅ 已提交 `df97c19`（90 个 backend `.py`） |
-| 五项校验 | ✅ 全绿（402 passed / ruff / tsc / SSE / smoke） |
-| 推送凭据 | ⏳ **待提供 GITHUB_TOKEN** |
-| 实际推送 | ⏳ 待凭据到位后一条命令完成 |
+| S1–S12 + 资产文档同步进 git 仓库 | ✅ 已提交 `1d41b70`（90 个 backend `.py` / 126 个 `.ts|.tsx`） |
+| 五项校验 | ✅ 全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke） |
+| 敏感文件防线 | ✅ 通过 |
+| 推送凭据 | ❌ **本环境所有通道均无写权限**（连接器 token 无 `repo` scope，实测 403） |
+| 实际推送 | ⏳ **待你提供 PAT** 后一条命令完成 |
 
-**下一步**：拿到 token 后执行
+**2026-10-13 11:32 实测**：完整跑通脚本四步，前三项全绿并在本地生成 `1d41b70`，
+**第 4 步推送 403**。本地领先远端 3 个提交（`c9f6da5` / `df97c19` / `1d41b70`），落后 0。
+
+**下一步**：拿到 PAT 后执行
 
 ```bash
 cd /workspace/marionette && export GITHUB_TOKEN=<token> \
   && ./scripts/push-to-github.sh --dry-run "feat(story): S1–S12"   # 先试推确认权限
 ```
 
-试推通过即去掉 `--dry-run` 正式推送。
+试推通过即去掉 `--dry-run` 正式推送（工作区无新改动时脚本会跳过提交直接推，属正常）。

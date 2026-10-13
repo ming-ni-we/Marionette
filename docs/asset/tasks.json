@@ -289,12 +289,12 @@
     },
     {
       "id": "GIT",
-      "title": "推送代码到 GitHub（S1–S12 已预提交，只差凭据）",
+      "title": "推送代码到 GitHub（S1–S12 已提交 1d41b70，只差 PAT）",
       "card": "task-GIT-push.md",
       "priority": 1,
       "parallel_safe": true,
       "blocked_by": [],
-      "block_reason": "沙箱无 GitHub 写凭据，需提供 GITHUB_TOKEN（fine-grained，Contents: Read and write）",
+      "block_reason": "本环境所有 GitHub 通道均无代码写权限：MCP 只读、连接器 OAuth token 无 repo scope（x-oauth-scopes 为空 → git push 403 denied to ming-ni-we）、gh 未登录、credential helper 返回空。需外部提供 GITHUB_TOKEN（fine-grained，Contents: Read and write）",
       "owns_files": [
         "/workspace/marionette-git"
       ],
@@ -307,10 +307,27 @@
       "script": "cd /workspace/marionette && export GITHUB_TOKEN=xxx && ./scripts/push-to-github.sh \"feat(story): S1–S12\"",
       "state": {
         "synced_into_git": true,
-        "precommit": "df97c19",
-        "verify": "五项全绿（402 passed / ruff / tsc / SSE / smoke）",
-        "pending": "只有 git push 未执行（缺 token）"
-      }
+        "precommit": "1d41b70",
+        "unpushed_commits": [
+          "c9f6da5",
+          "df97c19",
+          "1d41b70"
+        ],
+        "remote_head": "3ac1cc3",
+        "ahead_behind": "领先 3 / 落后 0（可 fast-forward）",
+        "verify": "五项全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke）",
+        "sensitive_check": "通过（无 .env / .backup-env / 私钥）",
+        "pending": "只有 git push 未执行（缺 PAT）",
+        "last_attempt": {
+          "at": "2026-10-13 11:32",
+          "channel": "GitHub 连接器 OAuth token（ghu_ 前缀）",
+          "result": "403 Permission to ming-ni-we/Marionette.git denied to ming-ni-we",
+          "root_cause": "x-oauth-scopes 为空 → 该 OAuth App 未申请 repo/public_repo scope",
+          "trap": "GET /repos/... 的 permissions.push=true 只代表用户权限，不代表 token scope，勿据此判断可推",
+          "side_effect": "无害：1d41b70 提交已留在本地，拿到 PAT 后直接推即可，无需重提"
+        }
+      },
+      "next_command": "cd /workspace/marionette && export GITHUB_TOKEN=<PAT> && ./scripts/push-to-github.sh --dry-run \"feat(story): S1–S12\" && ./scripts/push-to-github.sh \"feat(story): S1–S12\""
     },
     {
       "id": "S14",
@@ -402,9 +419,12 @@
     "script": "scripts/push-to-github.sh",
     "trigger": "一个功能阶段一次",
     "gate": "五项校验全绿（pytest / ruff / tsc / verify:sse / smoke）",
-    "credential": "GITHUB_TOKEN（fine-grained, Contents: Read and write）",
+    "credential": "GITHUB_TOKEN（fine-grained PAT, Contents: Read and write）；本环境连接器 OAuth token 无 repo scope，不可用",
     "repo": "https://github.com/ming-ni-we/Marionette",
-    "branch": "main"
+    "branch": "main",
+    "local_head": "1d41b70",
+    "remote_head": "3ac1cc3",
+    "unpushed": 3
   },
   "project_plan": {
     "card": "09-project-plan.md",
