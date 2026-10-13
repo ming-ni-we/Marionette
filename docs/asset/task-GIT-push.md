@@ -19,8 +19,10 @@ export GITHUB_TOKEN=<你的 fine-grained PAT>     # 需 Contents: Read and write
 ./scripts/push-to-github.sh "feat(story): S1–S12"             # 通过后正式推
 ```
 
-> ⚠️ **别再重复提交**：本地已有 3 个待推提交（`c9f6da5` / `df97c19` / `1d41b70`）。
+> ⚠️ **别再重复提交**：本地已有一串待推提交（最近一次核对 `c74bcde`，共 4 个）。
 > 拿到 token 后若工作区无新改动，脚本会跳过提交直接推送 —— 这是**正确行为**，不是失败。
+> 数量会随每个阶段的提交继续增长，**以实测为准**：
+> `git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD`
 
 > 脚本会自动：同步工作目录 → 敏感文件防线 → 五项校验全绿 → 提交 → 推送 → 核对远端 SHA。
 > 下文是**手工流程**，保留作为原理参考与故障兜底。
@@ -59,11 +61,12 @@ GitHub 上现在只有 `c9f6da5`（S11 之前）。**所有从 GitHub 取码的�
 | 五项校验 | ✅ 全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke） |
 | 远程读权限 | ✅ 正常（`git fetch` 成功） |
 | 远程写权限 | ❌ **403 —— 实测连"连接器 OAuth token"也推不动**（见下节） |
-| 与远程的关系 | 远程 `main` 停在 `3ac1cc3`；本地**领先 3 个提交**，落后 0（可 fast-forward） |
+| 与远程的关系 | 远程 `main` 停在 `3ac1cc3`；本地**领先 4 个提交**，落后 0（可 fast-forward） |
 
 **提交链**：
 
 ```
+c74bcde  docs(asset): 记录 GitHub 推送 403 的实测根因与排查边界   ← 未推送
 1d41b70  feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）  ← 未推送（含 08/09 等资产文档）
 df97c19  feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）  ← 未推送
 c9f6da5  feat(runtime): 运行时引擎全量实现 + 前端设计精修     ← 未推送
