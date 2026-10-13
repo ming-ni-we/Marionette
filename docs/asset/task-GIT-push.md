@@ -2,7 +2,25 @@
 
 > 配套总纲：[`README.md`](./README.md) · **完全独立** ✅
 > 详细原始记录：`/workspace/PUSH-HANDOVER.md`（含完整改动清单与提交信息原文）
+> 关联卡：[`08-release-discipline.md`](./08-release-discipline.md) —— **长期发布纪律（改完代码怎么推）**
 > 关联卡：[`task-GET-CODE.md`](./task-GET-CODE.md) §2 —— **GitHub 目前是旧版，本卡完成后该问题消失**
+
+---
+
+## ✅ 已就绪：现在只需一条命令
+
+**S1–S12 已同步进本地 git 仓库并完成预提交**（`df97c19`），五项校验全绿。
+**唯一缺的是 GitHub 写凭据。**
+
+```bash
+cd /workspace/marionette
+export GITHUB_TOKEN=<你的 fine-grained PAT>     # 需 Contents: Read and write
+./scripts/push-to-github.sh --dry-run "feat(story): S1–S12"   # 先试推确认权限
+./scripts/push-to-github.sh "feat(story): S1–S12"             # 通过后正式推
+```
+
+> 脚本会自动：同步工作目录 → 敏感文件防线 → 五项校验全绿 → 提交 → 推送 → 核对远端 SHA。
+> 下文是**手工流程**，保留作为原理参考与故障兜底。
 
 ---
 

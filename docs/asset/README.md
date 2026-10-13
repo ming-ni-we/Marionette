@@ -73,6 +73,8 @@ S7  ✅ opening.py                S14 ⬜ 联调 + 回归 + 部署
 | 并行任务拆分与边界 | [`05-parallel-tasks.md`](./05-parallel-tasks.md) |
 | 剧情引擎完整设计 | [`06-story-engine-spec.md`](./06-story-engine-spec.md) |
 | 现状清单 / 待办 / 风险 | [`07-status-and-backlog.md`](./07-status-and-backlog.md) |
+| **改完代码怎么发布（推 GitHub）** | [`08-release-discipline.md`](./08-release-discipline.md) |
+| **接下来要做什么（唯一权威路线图）** | [`09-project-plan.md`](./09-project-plan.md) |
 
 **任务卡**（每张卡都可独立领取）：
 
@@ -83,6 +85,12 @@ S7  ✅ opening.py                S14 ⬜ 联调 + 回归 + 部署
 | [`task-S13-session-list.md`](./task-S13-session-list.md) | 会话列表集成（前端） | ⚠️ 依赖 S12 的路由约定，但可先写 |
 | [`task-INFRA-ops.md`](./task-INFRA-ops.md) | 运维待办（备份/HTTPS/密码/脏数据） | ✅ 完全独立，不与代码冲突 |
 | [`task-GIT-push.md`](./task-GIT-push.md) | 推送代码到 GitHub | ✅ 完全独立 |
+
+> 🗺️ **想知道「接下来做什么」？直接看 [`09-project-plan.md`](./09-project-plan.md)** —— 项目计划唯一权威清单。
+>
+> 📌 **发布纪律（所有任务适用）**：一个功能阶段做完 + 五项校验全绿 → 立刻同步到 GitHub。
+> 一条命令：`cd /workspace/marionette && ./scripts/push-to-github.sh "feat(xxx): 说明"`。
+> 详见 [`08-release-discipline.md`](./08-release-discipline.md)。
 
 ---
 

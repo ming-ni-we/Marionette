@@ -305,30 +305,34 @@ sudo /opt/marionette/backup.sh            # 手工验证一次
 
 ## 4. 待办清单（按优先级）
 
+> 🔴 **本表已并入 [`09-project-plan.md`](./09-project-plan.md)**（唯一权威路线图，2026-10-13 复核）。
+> 下面保留简要摘要，**细节与执行顺序以 09 卡为准**。
+
 ### P0 · 阻塞 MVP 闭环
 
-| # | 事项 | 卡 |
-|---|---|---|
-| 1 | ~~**S12 剧情演出页**~~ ✅ 已完成 | [`task-S12-story-runtime.md`](./task-S12-story-runtime.md) |
-| 2 | S13 会话列表集成 | [`task-S13-session-list.md`](./task-S13-session-list.md) |
-| 3 | S14 部署上线（真库联调已过，只差把代码弄上服务器） | 本文 §3.4 |
+| # | 事项 | 状态 | 卡 |
+|---|---|---|---|
+| 1 | ~~**S12 剧情演出页**~~ | ✅ 已完成并上线 | [`task-S12-story-runtime.md`](./task-S12-story-runtime.md) |
+| 2 | **S13 会话列表集成** | ⬜ **未开始**（`session-list.tsx` 无剧情逻辑） | [`task-S13-session-list.md`](./task-S13-session-list.md) |
+| 3 | **S14 联调回归** | 🟡 部署已做，联调待 S13 | [`09-project-plan.md`](./09-project-plan.md) §2 |
 
 ### P1 · 风险控制
 
-| # | 事项 | 卡 |
-|---|---|---|
-| 4 | 配置每日备份 cron + 演练恢复 | [`task-INFRA-ops.md`](./task-INFRA-ops.md) 待办 1 |
-| 5 | 域名 + HTTPS | 同上 待办 2 |
-| 6 | 代码推到 GitHub | [`task-GIT-push.md`](./task-GIT-push.md) |
+| # | 事项 | 状态 | 卡 |
+|---|---|---|---|
+| 4 | ~~配置每日备份 cron + 演练恢复~~ | ✅ **已完成**（cron 已触发、演练通过） | [`task-INFRA-ops.md`](./task-INFRA-ops.md) |
+| 5 | **代码推到 GitHub** | ⬜ **就绪待推，只差 PAT**（已预提交 `df97c19`） | [`task-GIT-push.md`](./task-GIT-push.md) |
+| 6 | 异地备份（COS） | ⬜ 脚本就绪，**缺密钥** | [`09-project-plan.md`](./09-project-plan.md) §3 |
+| 7 | 域名 + HTTPS | ⬜ 仍 HTTP 明文 | [`09-project-plan.md`](./09-project-plan.md) §3 |
 
 ### P2 · 清理与加固
 
-| # | 事项 | 卡 |
-|---|---|---|
-| 7 | 改强服务器口令 | [`task-INFRA-ops.md`](./task-INFRA-ops.md) 待办 3 |
-| 8 | 换 DeepSeek key | 同上 待办 4 |
-| 9 | 清理生产库脏数据 | 同上 待办 5 |
-| 10 | 服务器续费 | 同上 待办 6 |
+| # | 事项 | 状态 | 卡 |
+|---|---|---|---|
+| 8 | 改强服务器口令 | ⬜ | [`task-INFRA-ops.md`](./task-INFRA-ops.md) |
+| 9 | 换 DeepSeek key | ⬜（key 曾明文泄露） | 同上 |
+| 10 | 清理生产库脏数据 | 🟡 **大部分已清**（现存 `cards=5/worldbooks=2/presets=1/sessions=5/worlds=1`） | 同上 |
+| 11 | 服务器续费 | ⬜（到期 2026-11-09） | 同上 |
 
 ---
 

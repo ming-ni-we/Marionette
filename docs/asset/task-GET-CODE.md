@@ -18,13 +18,17 @@
 | # | 位置 | 内容 | 说明 |
 |---|---|---|---|
 | 1 | **服务器** `ubuntu@101.33.117.223:/opt/marionette` | **完整、最新、正在运行** | 90 个 `backend/app/*.py`；Docker 三容器 healthy |
-| 2 | GitHub `https://github.com/ming-ni-we/Marionette` | 历史快照 | **落后**：只到 `c9f6da5`（S11 之前），**不含 S1–S12 剧情引擎** |
+| 2 | GitHub `https://github.com/ming-ni-we/Marionette` | ⏳ **正在补齐** | 当前远端停在 `c9f6da5`（S11 之前），**不含 S1–S12**；本地已备好提交 `df97c19`，**只差一次 `git push`**（缺凭据）。见 [`08-release-discipline.md`](./08-release-discipline.md) |
 | 3 | 本地工作副本 `/workspace/marionette` | 完整、最新 | **不是 git 仓库**（无 `.git`），是 rsync 出来的工作目录 |
 | 4 | 离线包 `/workspace/marionette-c9f6da5.bundle` + `.patch` | 历史快照 | 与 GitHub 同代，同样不含 S1–S12 |
 
-> ⚠️ **最重要的认知**：**GitHub 上的代码是旧的。**
-> S1–S12（剧情引擎改造）**从未被 git 提交过**，只存在于「服务器 `/opt/marionette`」。
+> ⚠️ **最重要的认知**：**GitHub 上的代码目前是旧的。**
+> S1–S12（剧情引擎改造）**从未被 git 推送过**，只存在于「服务器 `/opt/marionette`」。
 > 所以 `git clone` 拿到的是 S11 之前的版本 —— 拿它去做剧情相关任务会一直找不到文件。
+>
+> ✅ **正在修复**：S1–S12 已提交进本地 git 仓库（`df97c19`），一旦补充 `GITHUB_TOKEN`
+> 并执行 `./scripts/push-to-github.sh`，GitHub 即成为完整可用的取码来源。
+> 此后本卡第 2 节的「GitHub 落后」问题即消失，**新任务可优先用 `git clone`**。
 
 ---
 
@@ -138,6 +142,7 @@ cd ../frontend && npx tsc --noEmit && npm run verify:sse
 **状态**：已创建（2026-10-13），用于补齐「代码位置」这一缺失的资产信息。
 
 **相关卡**：
-- [`task-GIT-push.md`](./task-GIT-push.md) —— 把本地新版推到 GitHub（**仍未完成**，完成后本卡第 2 节的"GitHub 落后"问题即消失）
+- [`08-release-discipline.md`](./08-release-discipline.md) —— 发布纪律：改完代码怎么同步到 GitHub
+- [`task-GIT-push.md`](./task-GIT-push.md) —— 把本地新版推到 GitHub（**已预提交，只差凭据**；完成后本卡第 2 节的"GitHub 落后"问题即消失）
 - [`03-deployment.md`](./03-deployment.md) —— 服务器部署细节
 - [`02-build-and-test.md`](./02-build-and-test.md) —— 构建与测试怎么跑

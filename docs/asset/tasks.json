@@ -121,6 +121,18 @@
   ],
   "tasks": [
     {
+      "id": "RELEASE",
+      "title": "发布纪律：改完代码 → 同步 GitHub",
+      "card": "08-release-discipline.md",
+      "priority": 0,
+      "parallel_safe": true,
+      "blocked_by": [],
+      "recurring": true,
+      "trigger": "一个功能阶段完成 + 五项校验全绿",
+      "command": "./scripts/push-to-github.sh \"feat(xxx): 说明\"",
+      "note": "全绿才推；校验失败不产生提交。凭据用 GITHUB_TOKEN。"
+    },
+    {
       "id": "GET-CODE",
       "title": "代码在哪 / 怎么拿到（所有任务的前置）",
       "card": "task-GET-CODE.md",
@@ -215,7 +227,10 @@
         "剧情会话显示「剧情」标签",
         "点击剧情会话跳 /stories/:id",
         "能从列表新建剧情会话（选世界观）"
-      ]
+      ],
+      "status": "pending",
+      "evidence_not_started": "session-list.tsx(292行) 全文无 story_session/world；new-session-dialog.tsx 不处理世界观",
+      "route_ready": "App.tsx:55 已有 /stories/:id -> StoryRuntimePage"
     },
     {
       "id": "INFRA",
@@ -230,50 +245,72 @@
       "items": [
         {
           "n": 1,
-          "what": "配置每日备份 cron + 演练恢复",
-          "priority": "P1 最高"
+          "what": "每日备份 cron + 演练恢复",
+          "priority": "P1 最高",
+          "status": "✅ 已完成（cron 已触发、演练通过）"
         },
         {
           "n": 2,
           "what": "域名 + HTTPS",
-          "priority": "P1"
+          "priority": "P1",
+          "status": "⬜ 未做（仍 DOMAIN=:80 / SESSION_COOKIE_SECURE=false）"
         },
         {
           "n": 3,
-          "what": "改强服务器口令/密钥登录",
-          "priority": "P2"
+          "what": "异地备份（腾讯 COS）",
+          "priority": "P1",
+          "status": "⬜ 脚本就绪，缺密钥（.backup-env 不存在）"
         },
         {
           "n": 4,
-          "what": "换 DeepSeek key",
-          "priority": "P2"
+          "what": "改强服务器口令/密钥登录",
+          "priority": "P2",
+          "status": "⬜ 未做"
         },
         {
           "n": 5,
-          "what": "清理生产库脏数据",
-          "priority": "P2"
+          "what": "换 DeepSeek key",
+          "priority": "P2",
+          "status": "⬜ 未做（key 曾明文泄露）"
         },
         {
           "n": 6,
+          "what": "清理生产库测试数据",
+          "priority": "P2",
+          "status": "🟡 大部分已清（现存 cards=5/worldbooks=2/presets=1/sessions=5/worlds=1，残留「测试角色A」「部署验证会话」）"
+        },
+        {
+          "n": 7,
           "what": "服务器续费（2026-11-09 到期）",
-          "priority": "P2"
+          "priority": "P2",
+          "status": "⬜ 未做"
         }
       ]
     },
     {
       "id": "GIT",
-      "title": "推送代码到 GitHub",
+      "title": "推送代码到 GitHub（S1–S12 已预提交，只差凭据）",
       "card": "task-GIT-push.md",
-      "priority": 2,
+      "priority": 1,
       "parallel_safe": true,
       "blocked_by": [],
-      "block_reason": "沙箱无 GitHub 写凭据，需沙箱外执行或提供 PAT",
+      "block_reason": "沙箱无 GitHub 写凭据，需提供 GITHUB_TOKEN（fine-grained，Contents: Read and write）",
       "owns_files": [
         "/workspace/marionette-git"
       ],
       "note": "⚠️ S1–S12 的改动尚未提交进 git，需先 rsync 同步再 commit",
       "why_it_matters": "GitHub 目前只有旧代码（c9f6da5，S11 之前）。新任务 `git clone` 会拿到缺剧情引擎的版本——这正是 task-GET-CODE.md 记录的高危坑之一。推送完成后可解除该风险。",
-      "see_also": "task-GET-CODE.md §2"
+      "see_also": [
+        "task-GET-CODE.md §2",
+        "08-release-discipline.md"
+      ],
+      "script": "cd /workspace/marionette && export GITHUB_TOKEN=xxx && ./scripts/push-to-github.sh \"feat(story): S1–S12\"",
+      "state": {
+        "synced_into_git": true,
+        "precommit": "df97c19",
+        "verify": "五项全绿（402 passed / ruff / tsc / SSE / smoke）",
+        "pending": "只有 git push 未执行（缺 token）"
+      }
     },
     {
       "id": "S14",
@@ -359,5 +396,33 @@
     ],
     "deploy_blocked_by": "沙箱无服务器写凭据（~/.ssh 空、无 SSH_* 环境变量）",
     "deploy_steps": "见 07-status-and-backlog.md §3.4"
+  },
+  "release": {
+    "discipline_card": "08-release-discipline.md",
+    "script": "scripts/push-to-github.sh",
+    "trigger": "一个功能阶段一次",
+    "gate": "五项校验全绿（pytest / ruff / tsc / verify:sse / smoke）",
+    "credential": "GITHUB_TOKEN（fine-grained, Contents: Read and write）",
+    "repo": "https://github.com/ming-ni-we/Marionette",
+    "branch": "main"
+  },
+  "project_plan": {
+    "card": "09-project-plan.md",
+    "authoritative": true,
+    "reviewed_at": "2026-10-13",
+    "next_in_order": [
+      "GIT (推 GitHub，只差 PAT)",
+      "S13 会话列表",
+      "S14 联调",
+      "INFRA: COS 异地备份",
+      "INFRA: 域名+HTTPS",
+      "INFRA: P2 加固"
+    ],
+    "blocked_on_user": {
+      "GIT": "GitHub PAT（fine-grained, Contents: Read and write）",
+      "INFRA-cos": "腾讯云 COS 密钥",
+      "INFRA-https": "域名",
+      "INFRA-deepseek": "新的 DeepSeek key"
+    }
   }
 }
