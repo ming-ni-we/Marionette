@@ -182,7 +182,7 @@ const ROUTES = [
   { path: '/presets/p1f0a1e2-0001-4c01-9b01-000000000001', expect: /日常向/ },
 ];
 
-const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList } = await import(
+const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList, probeStoryMultiTurn } = await import(
   pathToFileURL(outfile).href
 );
 
@@ -287,6 +287,11 @@ const story = await probeStoryRuntime();
 document.getElementById('root').innerHTML = '';
 const sl = await probeSessionList();
 
+/* ------------- 3.7) 剧情多轮气泡顺序（回归：回复跑到用户消息上方）------------- */
+// 连发两轮，断言「第二轮的用户消息」出现在「第二轮的回复」之前。
+document.getElementById('root').innerHTML = '';
+const mt = await probeStoryMultiTurn();
+
 /* --------------------------------- 4) 报告 -------------------------------- */
 console.error = origErr;
 let failed = 0;
@@ -339,8 +344,20 @@ if (!slOk) {
   if (!sl.hasRpg) console.log('       ✗ 列表里没有 1v1 会话');
 }
 
+console.log(
+  `${mt.ok ? 'PASS' : 'FAIL'}  剧情多轮气泡顺序  第二轮用户@${mt.secondUserIdx} 回复@${mt.secondReplyIdx} 首轮气泡误膨胀=${mt.firstTurnReplyGrew}`,
+);
+if (!mt.ok) {
+  console.log('       DOM 顺序：');
+  for (const o of mt.order) console.log(`         ${o}`);
+  if (mt.secondUserIdx < 0) console.log('       ✗ 没找到第二轮的用户消息');
+  else if (mt.secondReplyIdx <= mt.secondUserIdx) {
+    console.log('       ✗ 第二轮回复出现在用户消息之前（或根本没渲染）');
+  }
+}
+
 const probeFailed =
-  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1);
+  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1) + (mt.ok ? 0 : 1);
 console.log(
   failed === 0 && errors.length === 0 && probeFailed === 0
     ? '\n[结论] PASS'

@@ -226,3 +226,116 @@ export async function probeStoryRuntime(): Promise<{
     hasNode: /雨夜的第一封信/.test(bodyText),
   };
 }
+
+/**
+ * 剧情**多轮**顺序探针（回归守卫：回复跑到用户消息上方）。
+ *
+ * 复现的真实故障：同一个角色每轮都在场、`speaker_id` 恒定，
+ * 若 `appendDelta` 反查气泡时不限定「本轮」范围，第二轮回复会被
+ * 追加进**第一轮**那条气泡里 —— 而它在 DOM 里位于用户消息**上方**，
+ * 于是看起来「我回答完，角色的话跑到我问题前面去了」。
+ *
+ * 因此在真实页面里连发两轮，然后按 DOM 顺序断言：
+ *   「第二轮的用户消息」必须出现在「第二轮的回复」**之前**。
+ */
+export async function probeStoryMultiTurn(): Promise<{
+  ok: boolean;
+  order: string[];
+  secondUserIdx: number;
+  secondReplyIdx: number;
+  firstTurnReplyGrew: boolean;
+}> {
+  const container = document.getElementById('root');
+  if (!container) throw new Error('缺少 #root');
+
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 0 }, mutations: { retry: false } },
+  });
+  const root = createRoot(container);
+  root.render(
+    <StrictMode>
+      <QueryClientProvider client={qc}>
+        <TooltipProvider delayDuration={0}>
+          <MemoryRouter initialEntries={['/stories/s1f0a1e2-0003-4d03-9c03-000000000003']}>
+            <App />
+          </MemoryRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+  await new Promise((r) => setTimeout(r, 400));
+
+  const typeAndSend = async (text: string) => {
+    const textarea = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="输入你的行动"]');
+    if (!textarea) throw new Error('剧情页没有渲染出行动输入框');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+    setter?.call(textarea, text);
+    textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 80));
+    const btn = container.querySelector<HTMLButtonElement>('button[aria-label="发送你的行动"]');
+    if (!btn) throw new Error('剧情页没有渲染出发送按钮');
+    btn.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  };
+
+  /* ---- 第 1 轮 ---- */
+  await typeAndSend('第一轮：我推门进去。');
+  await new Promise((r) => setTimeout(r, 3800));
+  // 记下第一轮里苏晚气泡的正文长度
+  const firstTurnSuLen =
+    Array.from(container.querySelectorAll('article[aria-label$="的消息"]'))
+      .filter((a) => a.querySelector('span.font-medium')?.textContent?.trim() === '苏晚')
+      .map((a) => (a.querySelector('p.narrative')?.textContent || '').length)
+      .reduce((a, b) => Math.max(a, b), 0);
+
+  /* ---- 第 2 轮 ---- */
+  await typeAndSend('第二轮：我走到柜台前。');
+  await new Promise((r) => setTimeout(r, 3800));
+
+  /* ---- 按 DOM 顺序抽取所有消息，定位第二轮用户消息与紧随其后的回复 ---- */
+  const nodes = Array.from(container.querySelectorAll('article[aria-label$="的消息"]'));
+  const order: string[] = [];
+  let secondUserIdx = -1;
+  let secondReplyIdx = -1;
+
+  /** 用户气泡没有 `p.narrative`（那是角色正文的类名），退化为取整块文本。 */
+  const readBody = (a: Element, isUser: boolean) => {
+    if (!isUser) return (a.querySelector('p.narrative')?.textContent || '').trim();
+    // 用户气泡：取除头像位（aria-hidden）与操作按钮外的文本
+    const text = (a.textContent || '').trim();
+    return text.replace(/^你/, '').trim();
+  };
+
+  nodes.forEach((a, idx) => {
+    const label = a.getAttribute('aria-label') || '';
+    const isUser = label === '你的消息';
+    const name = a.querySelector('span.font-medium')?.textContent?.trim() || '';
+    const body = readBody(a, isUser);
+    order.push(isUser ? `user:${body.slice(0, 10)}` : `${name}:${body.slice(0, 10)}`);
+    if (isUser && body.includes('第二轮')) secondUserIdx = idx;
+    if (!isUser && secondUserIdx >= 0 && secondReplyIdx < 0 && body) secondReplyIdx = idx;
+  });
+
+  // 第一轮的苏晚气泡是否被第二轮内容「撑大」（说明误命中）
+  const agoraSuLen =
+    Array.from(container.querySelectorAll('article[aria-label$="的消息"]'))
+      .filter((a) => a.querySelector('span.font-medium')?.textContent?.trim() === '苏晚')
+      .map((a) => (a.querySelector('p.narrative')?.textContent || '').length)
+      .reduce((a, b) => Math.max(a, b), 0);
+
+  // 判定两条**同时**成立才算通过：
+  //   1. 第二轮的用户消息出现在它之后的回复**之前**（顺序对）；
+  //   2. 第一轮的旧气泡**没有**被第二轮内容撑大（没有误命中）。
+  // 第 2 条才是真正的回归信号 —— 顺序可能「看起来对」（第二轮确实新建了气泡），
+  // 但同时内容又被灌进了历史气泡，DOM 顺序断言单独看不出来。
+  const firstTurnReplyGrew = agoraSuLen > firstTurnSuLen + 30;
+  const ok = secondUserIdx >= 0 && secondReplyIdx > secondUserIdx && !firstTurnReplyGrew;
+
+  return {
+    ok,
+    order,
+    secondUserIdx,
+    secondReplyIdx,
+    firstTurnReplyGrew,
+  };
+}

@@ -52,6 +52,17 @@ export interface MessageMeta {
   direction?: string;
   /** 导演给该角色的意图（同上） */
   intent?: string;
+  /**
+   * **仅前端本地使用**，不会发给后端、也不会从后端读回。
+   *
+   * 每轮开演前由 `use-chat-stream` 打上当前轮次标识，用于把
+   * 「本轮气泡」和「历史轮次气泡」区分开。
+   *
+   * 为什么需要它：`delta` 只带 `speaker_id`，前端靠它反查该写进哪条气泡。
+   * 但同一个角色在**上一轮**已有气泡，若反查时不限定范围，就会命中旧气泡，
+   * 导致本轮回复被追加到用户消息**上方**的历史气泡里。
+   */
+  _turnKey?: string;
 }
 
 export interface Message {

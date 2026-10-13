@@ -108,6 +108,25 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
    */
   const activeSpeakerRef = useRef<ActiveSpeaker | null>(null);
 
+  /**
+   * 本轮标识 —— 每轮开演时换一个新值，并给本轮产生的每条气泡打上它。
+   *
+   * **用途**：`appendDelta` 靠 `speaker_id` 反查"该写进哪条气泡"。
+   * 若不加范围限制，反查会命中**上一轮**同角色的气泡（同一角色每轮 id 相同），
+   * 于是本轮回复被写到用户消息上方的历史气泡里 —— 表现就是
+   * "我回答完，角色的话跑到我上面去了"。
+   *
+   * 所以反查只在「本轮」范围内进行：本轮没有对应气泡时**就地新建**，
+   * 保证回复永远出现在用户消息**下方**。
+   */
+  const turnKeyRef = useRef<string>('');
+
+  /** 打上本轮标记（新对象，避免污染既有引用）。 */
+  const tagTurn = <T extends { meta?: Message['meta'] }>(msg: T): T => ({
+    ...msg,
+    meta: { ...(msg.meta ?? {}), _turnKey: turnKeyRef.current },
+  });
+
   const patchLastAssistant = useCallback((patch: Partial<Message>) => {
     setMessages((m) => {
       if (m.length === 0) return m;
@@ -125,12 +144,18 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
    * 剧情模式一轮有多条气泡，而 `delta` 只带 `speaker_id`、不带消息 id，
    * 因此需要靠 `speaker_id` 反查当前正在写的那条。
    *
-   * **关键：找不到时必须就地新建，不能退回「最后一条」。**
-   * 后端出于「N 个说话者 = N 条消息」的考虑，对**第一个**说话者
-   * 不发 `speaker_switch`（见 `chat.py` 的 `if index > 0:`），只发 `delta + speaker_id`。
-   * 若此时退回「最后一条 assistant」，该说话者的正文会被追加进
-   * 前一条消息——通常是导演的旁白——于是旁白气泡里长出角色台词，
-   * 而该角色没有自己的气泡。1v1 无 `speaker_id`（undefined）时才走退回分支。
+   * **两条铁律**：
+   *
+   * 1. **只在「本轮」范围内反查** —— 反查条件带上 `_turnKey === turnKeyRef.current`。
+   *    同一角色每轮都在场、`speaker_id` 不变，若不限定范围就会命中上一轮的旧气泡，
+   *    本轮回复被追加到用户消息**上方**（历史位置），看起来"角色插话到我的问题前面去了"。
+   *
+   * 2. **找不到时必须就地新建，不能退回「最后一条」** ——
+   *    后端出于「N 个说话者 = N 条消息」的考虑，对**第一个**说话者
+   *    不发 `speaker_switch`（见 `chat.py` 的 `if index > 0:`），只发 `delta + speaker_id`。
+   *    若此时退回「最后一条 assistant」，该说话者的正文会被追加进
+   *    前一条消息——通常是导演的旁白——于是旁白气泡里长出角色台词。
+   *    1v1 无 `speaker_id`（undefined）时才走退回分支。
    */
   const appendDelta = useCallback((text: string, speakerId?: string | null) => {
     if (!text) return;
@@ -149,38 +174,43 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
       /* ---- 剧情模式：speaker_id 为 null 表示旁白（后端把旁白也归到这条通道） ---- */
       if (speakerId === null) {
         for (let i = next.length - 1; i >= 0; i -= 1) {
-          if (next[i].meta?.is_narration) {
+          if (next[i].meta?.is_narration && next[i].meta?._turnKey === turnKeyRef.current) {
             next[i] = { ...next[i], content: next[i].content + text, status: 'streaming' };
             return next;
           }
         }
       }
 
-      /* ---- 剧情模式：按 speaker_id 反查（从后往前，避免同名角色误命中历史气泡） ---- */
+      /* ---- 剧情模式：按 speaker_id 反查（限本轮，从后往前，避免误命中历史气泡） ---- */
       for (let i = next.length - 1; i >= 0; i -= 1) {
-        if (next[i].meta?.speaker_id === speakerId) {
+        if (
+          next[i].meta?.speaker_id === speakerId &&
+          next[i].meta?._turnKey === turnKeyRef.current
+        ) {
           next[i] = { ...next[i], content: next[i].content + text };
           return next;
         }
       }
 
-      /* ---- 该说话者还没有气泡 → 就地新建一条（首个说话者走这条路）---- */
+      /* ---- 本轮该说话者还没有气泡 → 就地新建（首个说话者走这条路）---- */
       const lastName =
         activeSpeakerRef.current?.id === speakerId ? activeSpeakerRef.current.name : '';
-      next.push({
-        id: `local-speaker-${Date.now()}-${next.length}`,
-        role: 'assistant',
-        content: text,
-        status: 'streaming',
-        token_count: 0,
-        created_at: new Date().toISOString(),
-        meta: {
-          speaker_id: speakerId,
-          speaker_name: lastName || null,
-          is_narration: false,
-          beat_role: 'reply',
-        },
-      });
+      next.push(
+        tagTurn({
+          id: `local-speaker-${Date.now()}-${next.length}`,
+          role: 'assistant' as const,
+          content: text,
+          status: 'streaming' as const,
+          token_count: 0,
+          created_at: new Date().toISOString(),
+          meta: {
+            speaker_id: speakerId,
+            speaker_name: lastName || null,
+            is_narration: false,
+            beat_role: 'reply' as const,
+          },
+        }),
+      );
       return next;
     });
   }, []);
@@ -238,20 +268,20 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
             const narrationDone = next.isNarration && Boolean(next.messageId);
             return [
               ...m,
-              {
+              tagTurn({
                 id: localId,
-                role: 'assistant',
+                role: 'assistant' as const,
                 content: '',
-                status: narrationDone ? 'complete' : 'streaming',
+                status: narrationDone ? ('complete' as const) : ('streaming' as const),
                 token_count: 0,
                 created_at: new Date().toISOString(),
                 meta: {
                   speaker_id: next.id,
                   speaker_name: next.name || null,
                   is_narration: next.isNarration,
-                  beat_role: next.isNarration ? 'narration' : 'reply',
+                  beat_role: next.isNarration ? ('narration' as const) : ('reply' as const),
                 },
-              },
+              }),
             ];
           });
           break;
@@ -303,6 +333,9 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
     (input: string, opener?: (cb: Parameters<typeof streamChat>[2]) => { abort: () => void }) => {
       setState('assembling');
       setError(null);
+      // 开新一轮：换 turnKey，让本轮气泡与历史气泡区分开。
+      // 必须在这里（而不是 send 里）—— regenerate / retry 也走这条路。
+      turnKeyRef.current = `t-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       // 剧情模式：消息行由后端在演出循环里创建（start.message_id 为空串），
       // 前端预建会多出一条填不满的空气泡 —— 见 UseChatStreamArgs.storyMode
       if (!storyMode) {
