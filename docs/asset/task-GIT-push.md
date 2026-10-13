@@ -9,18 +9,36 @@
 
 ## ✅ 已就绪：现在只需一条命令
 
-**S1–S12 + 项目资产文档已同步进本地 git 仓库并完成提交**（最新 `1d41b70`），五项校验全绿。
+**S1–S14 全部完成**（含 S13 会话列表、S14 联调、世界编辑页「开演」修复），
+本地 **14 个提交**待推，最新 `80767c3`。六项校验全绿（`--check-only` 已实测）。
+
+```
+$ git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD
+0	14          # 落后 0 / 领先 14 → 干净的 fast-forward，不会冲突
+```
+
 **唯一缺的是 GitHub 写凭据。**
 
 ```bash
 cd /workspace/marionette
 export GITHUB_TOKEN=<你的 fine-grained PAT>     # 需 Contents: Read and write
-./scripts/push-to-github.sh --dry-run "feat(story): S1–S12"   # 先试推确认权限
-./scripts/push-to-github.sh "feat(story): S1–S12"             # 通过后正式推
+./scripts/push-to-github.sh --dry-run "feat(story): S1–S14 剧情引擎全链路"   # 先试推确认权限
+./scripts/push-to-github.sh "feat(story): S1–S14 剧情引擎全链路"             # 通过后正式推
 ```
 
-> ⚠️ **别再重复提交**：本地已有一串待推提交（`c9f6da5` 起，链见下）。
-> 拿到 token 后若工作区无新改动，脚本会跳过提交直接推送 —— 这是**正确行为**，不是失败。
+> 💡 **不想把 PAT 交给沙箱？** 用 [方案 C](#方案-c--用-bundle-手工搬运不想把-pat-交给沙箱时用这条)。
+> 现成 bundle：**`/workspace/marionette-s14.bundle`**（1.9 MB，`git bundle verify` 已通过，
+> 含完整历史与 `refs/heads/main`）。在有登录态的机器上：
+>
+> ```bash
+> git clone /path/to/marionette-s14.bundle marionette
+> cd marionette && git push origin main      # 或 git remote set-url origin <你的地址>
+> ```
+>
+> 效果与直接推送完全相同。
+
+> ⚠️ **别再重复提交**：本地已有 14 个待推提交。拿到 token 后若工作区无新改动，
+> 脚本会跳过提交直接推送 —— 这是**正确行为**，不是失败。
 > 待推数量随每个阶段的提交增长，**不要相信任何写死的数字，自己测**：
 >
 > ```bash
@@ -28,14 +46,11 @@ export GITHUB_TOKEN=<你的 fine-grained PAT>     # 需 Contents: Read and write
 > # 输出 "<落后> <领先>"，只要左边是 0，就是干净的 fast-forward
 > ```
 
-> 脚本会自动：同步工作目录 → 敏感文件防线 → 五项校验全绿 → 提交 → 推送 → 核对远端 SHA。
+> 脚本会自动：同步工作目录 → 敏感文件防线 → 六项校验全绿 → 提交 → 推送 → 核对远端 SHA。
 > 下文是**手工流程**，保留作为原理参考与故障兜底。
 >
-> 💡 **不想把 PAT 交给沙箱？** 用 [方案 C](#方案-c--用-bundle-手工搬运不想把-pat-交给沙箱时用这条) 的现成 bundle
-> （`/workspace/marionette-main.bundle`），在你自己有登录态的机器上推，效果完全相同。
->
-> 📌 **2026-10-13 11:45 用户决策**：不单独推 S1–S12，**等 S13 完成后一起推**。
-> 在此之前 GitHub 保持旧版，**取码请以服务器 `/opt/marionette` 为准**（见 `task-GET-CODE.md`）。
+> 📌 **2026-10-13 11:45 用户决策**：不单独推 S1–S12，等 S13 完成后一起推。
+> **现状**：S13 与 S14 均已完成，世界编辑页「开演」问题也已修复 —— **可以推了**。
 
 ---
 
@@ -61,21 +76,28 @@ GitHub 上现在只有 `c9f6da5`（S11 之前）。**所有从 GitHub 取码的�
 
 ---
 
-## 当前状态（2026-10-13 11:32 核实）
+## 当前状态（2026-10-13 14:12 核实）
 
 | 项 | 状态 |
 |---|---|
 | git 工作仓库 | `/workspace/marionette-git`（**注意：不是** `/workspace/marionette`） |
-| 本地最新提交 | `1d41b70` — `feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）` |
+| 本地最新提交 | `80767c3` — `docs(asset): 记录「世界编辑页开演失败」的根因与教训` |
 | 工作区 | 干净（`git status --porcelain` 无输出） |
-| 五项校验 | ✅ 全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke） |
+| 六项校验 | ✅ 全绿（446 passed, 0 skipped / ruff / tsc / SSE / story-create / smoke） |
 | 远程读权限 | ✅ 正常（`git fetch` 成功） |
 | 远程写权限 | ❌ **403 —— 实测连"连接器 OAuth token"也推不动**（见下节） |
-| 与远程的关系 | 远程 `main` 停在 `3ac1cc3`；本地**领先若干提交**、落后 0（可 fast-forward）。**数量自己测**：`git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD` |
+| 与远程的关系 | 远程 `main` 停在 `3ac1cc3`；本地**领先 14 个提交**、落后 0（可 fast-forward）。**数量自己测**：`git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD` |
+| bundle 备用 | ✅ `/workspace/marionette-s14.bundle`（1.9 MB，`bundle verify` 通过） |
 
-**提交链**（`c9f6da5` 及之后均未推送，以 `3ac1cc3` 为界）：
+**提交链**（以 `3ac1cc3` 为界，以下 14 个均未推送，新的在上）：
 
 ```
+80767c3  docs(asset): 记录「世界编辑页开演失败」的根因与教训        ← 未推送
+2872bc5  fix(world): 修复世界编辑页「开演」必然失败（第二个创建入口漏改）  ← 未推送
+a7558a5  docs(asset): 记录 S14 联调实测结果与 S13/S14 收尾          ← 未推送
+25a586e  chore(frontend): 清理误提交的探针构建产物并加进 .gitignore   ← 未推送
+48c69ba  test(session): 补会话列表剧情集成探针（S14 验收）            ← 未推送
+d77ab88  feat(session): 会话列表集成剧情会话（S13）                  ← 未推送
 cc7ef15  docs(asset): 待推提交数改为以 rev-list 实测为准             ← 未推送
 c74bcde  docs(asset): 记录 GitHub 推送 403 的实测根因与排查边界       ← 未推送
 1d41b70  feat(story): AI 导演驱动的多角色剧情引擎（S1–S12）  ← 未推送（含 08/09 等资产文档）
