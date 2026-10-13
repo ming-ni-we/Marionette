@@ -56,8 +56,26 @@ _DIRECTOR_SYSTEM = """你是一台剧情世界模拟器（AI 导演），负责�
   "reason": "一句话说明你的裁决理由"
 }"""
 
-#: 采样参数：导演要稳定不要创意（温度低），输出短（512 够写裁决 JSON）
-_DIRECTOR_PARAMS: dict[str, Any] = {"temperature": 0.4, "max_tokens": 512}
+#: 采样参数：导演要稳定不要创意（温度低）。
+#:
+#: `max_tokens` 曾设为 512 —— 在「角色设定简短、单角色发言」的世界观下够用，
+#: 但只要遇到**角色 voice/goals 写得较详细**、或导演一轮点了 2~3 个 speaker 的
+#: 场景，裁决 JSON 就写不完被截断：`_extract_json` 找不到闭合括号 → 判为不可解析
+#: → 连 L2 重试也大概率同样截断 → 最终降级为 `fallback()` 单角色接话。
+#:
+#: 降级是静默的（只在日志留 WARNING），表现为：永远同一个角色说话、
+#: `node_triggered` 恒为 null、行动建议为空 —— 玩家会以为「这就是引擎的水平」。
+#: 实测（2026-10-13，线上 deepseek-chat）《木叶·雾中之刃》连续 8 轮全部降级。
+#:
+#: 1024 给「3 speaker × 详细 intent/direction + narration + relations + flags」留足余量，
+#: 单轮成本增加可忽略（导演本就要输出这么多内容，512 只是把它砍断而已）。
+_DIRECTOR_PARAMS: dict[str, Any] = {"temperature": 0.4, "max_tokens": 1024}
+
+#: 触发「输出疑似被截断」告警的字符数下限。
+#:
+#: 解析失败 + 输出长度接近上限 → 大概率是截断，而不是模型乱写。
+#: 区分这两种情况对排查很关键：前者要调 max_tokens，后者要改提示词。
+_DIRECTOR_TRUNCATION_HINT = 600
 
 #: response_format 参数（L1 优先使用）
 _JSON_FORMAT: dict[str, Any] = {"type": "json_object"}
@@ -488,7 +506,25 @@ class DirectorSvc:
                 reason="导演调用失败（已重试），本轮降级为单角色接话。", speaker=fallback_speaker
             )
         if parsed is None:
-            logger.warning("director returned unparsable output: %r", raw[:200])
+            # 区分「被截断」与「模型乱写」：前者要调 max_tokens，后者要改提示词。
+            # 二者的排查方向完全不同，早期版本只打一句 "unparsable" 分不出来，
+            # 导致「导演长期静默降级」被误判成「剧情设计得不好」（见 max_tokens 注释）。
+            if len(raw) >= _DIRECTOR_TRUNCATION_HINT:
+                logger.warning(
+                    "director output likely TRUNCATED (len=%d, max_tokens=%s) —— "
+                    "裁决 JSON 未写完。考虑提高 _DIRECTOR_PARAMS['max_tokens'] "
+                    "或精简角色的 voice/goals。head=%r",
+                    len(raw),
+                    _DIRECTOR_PARAMS.get("max_tokens"),
+                    raw[:200],
+                )
+            else:
+                logger.warning(
+                    "director output unparsable and NOT truncated (len=%d) —— "
+                    "疑似模型未按 JSON 输出。head=%r",
+                    len(raw),
+                    raw[:200],
+                )
             return DirectorDecision.fallback(
                 reason="导演输出无法解析为 JSON，本轮降级为单角色接话。", speaker=fallback_speaker
             )

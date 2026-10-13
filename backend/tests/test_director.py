@@ -165,8 +165,15 @@ class TestDegradationLayers:
         router = _StubRouter([VALID_JSON])
         await DirectorSvc(router=router).decide(**_decide_kwargs())
         params = router.calls[0]["params"]
+        # 温度固定（导演要稳定不要创意）。
         assert params["temperature"] == 0.4
-        assert params["max_tokens"] == 512
+        # max_tokens 不写死具体值——曾因这里钉死 512 而让「导演出参被截断」
+        # 的缺陷长期无法修正（见 TestTruncationGuard 的说明）。
+        # 改为断言「引用常量」且「余量足够」。
+        from app.services.director import _DIRECTOR_PARAMS
+
+        assert params["max_tokens"] == _DIRECTOR_PARAMS["max_tokens"]
+        assert params["max_tokens"] >= 1024
 
     async def test_fallback_never_raises_on_weird_exception(self) -> None:
         router = _StubRouter([KeyboardInterrupt(), KeyboardInterrupt()])
@@ -419,3 +426,66 @@ class TestBuildPrompt:
         )
         assert len(messages) == 2
         assert "未指定" in messages[0].content
+
+
+# --------------------------------------------------------------------------- #
+# 5：max_tokens 与截断诊断（回归：导演出参被截断导致静默降级）
+# --------------------------------------------------------------------------- #
+class TestTruncationGuard:
+    """守护「导演 JSON 被 max_tokens 截断 → 静默降级」这一类缺陷。
+
+    背景（2026-10-13 线上实测）：max_tokens 原为 512。遇到角色 voice/goals
+    写得较详细、或一轮点 2~3 个 speaker 的世界观时，裁决 JSON 写不完就被截断，
+    `_extract_json` 拿不到闭合括号 → 判为不可解析 → L2 重试大概率同样截断 →
+    最终 fallback 成「单角色接话」。表现为：永远同一个角色说话、
+    node_triggered 恒为 null、行动建议为空 —— 且日志只有一句 unparsable，
+    很难定位。此测试锁死「余量足够」与「截断可诊断」两点。
+    """
+
+    def test_max_tokens_has_headroom(self) -> None:
+        """max_tokens 必须给「多 speaker + 详细裁决」留足余量。
+
+        512 是已证实不足的值（线上真实截断），这里设下限 1024 防回退。
+        """
+        from app.services.director import _DIRECTOR_PARAMS
+
+        assert _DIRECTOR_PARAMS["max_tokens"] >= 1024
+
+    async def test_truncated_output_logged_as_truncation(self, caplog: Any) -> None:
+        """输出长且解析失败 → 日志必须点明「TRUNCATED」，便于定位。"""
+        import logging
+
+        from app.services.director import _DIRECTOR_TRUNCATION_HINT
+
+        # 造一段「很长但没闭合」的输出：长度超过提示阈值，且 json 不完整
+        truncated = (
+            '{"speakers": ['
+            + '{"id": "c1", "name": "旗木卡卡西", '
+            + '"intent": "确认玩家发现的铅笔字含义，同时警惕雾中异响，把情报交换的节奏压下来", '
+            + '"direction": "先瞥一眼名册末页，再抬眼看向门口雾的方向；语气慢悠悠但尾音收紧", '
+            + '"note": "'
+            + "填充" * 220
+            + '"},\n  {"id": "c2", "name": "春野樱", "intent": "接过话头'
+        )
+        assert len(truncated) >= _DIRECTOR_TRUNCATION_HINT, len(truncated)
+
+        router = _StubRouter([truncated, truncated])  # L1、L2 都返回同一段截断文本
+        with caplog.at_level(logging.WARNING, logger="app.services.director"):
+            decision = await DirectorSvc(router=router).decide(**_decide_kwargs())
+
+        assert decision.degraded is True  # 仍然安全降级，不上抛
+        joined = "\n".join(r.message for r in caplog.records)
+        assert "TRUNCATED" in joined, f"未识别为截断，实际日志：{joined}"
+
+    async def test_short_unparsable_logged_as_not_truncated(self, caplog: Any) -> None:
+        """短输出解析失败 → 日志应指向「模型没按 JSON 输出」，而不是截断。"""
+        import logging
+
+        router = _StubRouter(["抱歉，我无法回答这个问题。", "抱歉，我无法回答这个问题。"])
+        with caplog.at_level(logging.WARNING, logger="app.services.director"):
+            decision = await DirectorSvc(router=router).decide(**_decide_kwargs())
+
+        assert decision.degraded is True
+        joined = "\n".join(r.message for r in caplog.records)
+        assert "TRUNCATED" not in joined
+        assert "NOT truncated" in joined
