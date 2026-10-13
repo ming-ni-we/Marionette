@@ -14,9 +14,14 @@
 | 入口 | http://101.33.117.223（**暂无域名，走 HTTP 明文**） |
 | 环境 | Docker 29.6.1 + Compose v5.3.1 |
 | 到期 | **2026-11-09**（按月，记得续费） |
-| 访问口令 | 已设置（见 `.env`，不进 git） |
+| 访问口令 | 见服务器 `/opt/marionette/.env` 的 `ACCESS_PASSWORD` |
 | **SSH 登录** | `ubuntu@101.33.117.223`，口令 **`WBAccess@1`**（2026-10-13 由用户提供，用于自动化部署） |
 | 服务器登录口令 | 偏短，**建议改强或改密钥登录**（见 §5） |
+
+> ⚠️ **两个口令不是一回事**：SSH 口令 ≠ 应用访问口令。
+> 应用登录用 `ACCESS_PASSWORD`，它**不在 git 里**，线上取法：
+> `sshpass -e ssh ubuntu@101.33.117.223 'sudo grep ACCESS_PASSWORD /opt/marionette/.env'`。
+> （踩坑记录：初次写冒烟脚本时误用 SSH 口令去 `POST /auth/login`，得到 401。）
 
 ### 1.1 ⚠️ 服务器不是 git 仓库（部署方式必读）
 
