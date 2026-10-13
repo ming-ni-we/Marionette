@@ -474,6 +474,109 @@ PASS  会话列表剧情集成  条目=4 剧情标识=3 世界观名=true 跳转
 > 已做**故障注入验证**：把 `sessionHref` 的剧情分支改回 `/sessions` 后，
 > 探针准确报 `FAIL 跳转=✗/✗`；恢复即 PASS —— 证明这条闸门真的有效。
 
+### 5.7 线上反馈修复：「世界编辑页开演失败」（2026-10-13）
+
+#### 现象
+
+用户在世界编辑页点「用这个世界开演」，弹红色 toast：
+
+> 无法开演 —— 创建剧情会话失败。请确认后端已配置模型，并且这个世界至少有一个角色。
+
+截图里世界已保存（2 角色 · 1 关系 · 1 节点），节点 `n1 雨夜的第一封信` 存在。
+**toast 的文案具有误导性**：它把用户引向「配模型 / 加角色」，而真实原因与这两者无关。
+
+#### 根因：**第二个创建入口漏改**
+
+S13 已经判定「创建剧情会话必须传真实 card / preset」并修掉了
+`new-session-dialog.tsx`。但创建剧情会话有**两个**入口，世界编辑页的
+`play.mutationFn` 是第二个，写法与修掉的完全一样：
+
+```ts
+// world-editor.tsx（修复前）
+const lead = draft.cast[0];
+return sessionsApi.create({
+  character_card_id: lead?.card_id ?? '',
+  preset_id: '',            // ← 后端必填 UUID，这里必然失败
+  world_id: worldId,
+});
+```
+
+后端 `SessionCreateRequest` 的 `character_card_id` / `preset_id` 均为**非 Optional** UUID。
+真实后端实测三条失败路径：
+
+| 入参 | 结果 |
+|---|---|
+| `preset_id: ''` | `400 endpoint_invalid`「preset_id Input should be a valid UUID…found 0」 |
+| `character_card_id: ''` | `400 endpoint_invalid`「character_card_id Input should be a valid UUID…found 0」 |
+| `preset_id: <不存在的 UUID>` | `404 model_not_found`「预设不存在，无法开启剧情。」 |
+
+即便绕过 pydantic 校验，`parse_uuid('')` 也会抛 `BadRequestError` → 400；
+`create_story_session()` 还会再查一次 card/preset，查不到即 404。**三道关卡**都过不去。
+
+#### 为什么没被拦住
+
+守卫脚本 `check-story-create.mjs` **只扫 `new-session-dialog.tsx` 一个文件**。
+修完那个文件后闸门全绿，第二个入口从未被扫过 —— 这是典型的
+「修了症状所在的入口，没修同类入口」的遗漏。
+
+#### 修复
+
+`world-editor.tsx`：
+- 拉取 `cardsApi.list` / `presetsApi.list` 全量清单
+- 新增 `linkedCardId`，与对话框**同一套**三级优先：
+  成员 `card_id` 精确命中 → 按 `name` 匹配 → 清单首张
+- 新增 `defaultPresetId`（清单首份预设）
+- `play.mutationFn` 改传真实 id
+- 新增 `canPlay` / `playBlockReason`：缺卡或缺预设时**按钮直接禁用**，
+  并把原因写进 `title`，不让用户对着灰按钮猜
+
+`editor-header.tsx`：顶栏「开演」同步接入 `playDisabled` / `playBlockReason`。
+
+#### 守卫加固（防同类回归）
+
+`check-story-create.mjs` 从「只扫一个文件」改为
+**递归扫描 `src/` 下所有 `sessionsApi.create(` 调用点**，
+对传了 `world_id` 的（即剧情路径）逐个校验 card / preset 是否为真实变量，
+并覆盖 `?? ''` 这种可选链兜底变体：
+
+```
+=== 剧情会话创建守卫（S13）===
+  · src/components/session/new-session-dialog.tsx：剧情创建传真实 card + preset + world
+  · src/pages/world-editor.tsx：剧情创建传真实 card + preset + world
+  · 后端 SessionCreateRequest：character_card_id / preset_id 均为必填 UUID
+  · 演示世界观 1 个关联卡均指向真实卡片
+[结论] PASS
+```
+
+**故障注入验证**：把 `world-editor.tsx` 改回空串 → `FAIL（2 项）` exit=1；
+恢复 → PASS。
+
+#### 端到端复验（真实后端）
+
+修复前 / 修复后入参对照：
+
+| | 入参 | 结果 |
+|---|---|---|
+| 修复前 | `preset_id: ''` | **400** endpoint_invalid |
+| 修复后 | `card_id + preset_id + world_id`（真实 UUID） | **201**，`spec=story_session` |
+
+修复后建出的会话，完整链路实测：
+
+- **序幕**：`opening_parts=1`，走 L1（LLM）生成，落库为第 1 条 assistant 消息
+- **SSE 演出**（11 个事件）：
+  `world_info → director → start → speaker_switch(旁白) → delta×3 → node → usage → actions → done`
+- **气泡独立**：旁白气泡 + 林砚台词气泡分开，未串
+- **节点推进**：`node_id=n1 雨夜的第一封信` 落库
+- **关系增量**：`c1→c1 旧识` 更新为 tension 0.7
+- **刷新恢复**：`GET /sessions/{id}/story` 返回 `is_story=true` + cast + relations
+- **`degraded=false`**
+
+#### 教训（已同步进 §6 风险表）
+
+> **修一类契约错误时，必须枚举「所有具备该契约的调用点」，而不是只修报错的那一个。**
+> 守卫脚本的扫描范围要覆盖全仓，不能只盯住症状出现的文件 ——
+> 否则闸门会在「第二个入口」上给出虚假的安全感。
+
 ---
 
 ## 6. 已知风险与限制
@@ -487,6 +590,7 @@ PASS  会话列表剧情集成  条目=4 剧情标识=3 世界观名=true 跳转
 | 服务器代码落后 | 剧情功能线上不可用 | S14 部署 |
 | 代码未推 GitHub | 单点存放，无异地备份 | 见 Git 卡 |
 | 集成测试需真实 PG | 本地只能 skip | 服务器上跑 |
+| **同一契约有多个调用点** | 修一个漏一个（已发生过：S13 漏 world-editor） | 守卫脚本改为**全仓扫描**；修契约时先枚举全部调用点 |
 
 ---
 
