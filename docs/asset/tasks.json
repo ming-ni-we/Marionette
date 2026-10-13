@@ -293,8 +293,10 @@
       "card": "task-GIT-push.md",
       "priority": 1,
       "parallel_safe": true,
-      "blocked_by": [],
-      "block_reason": "本环境所有 GitHub 通道均无代码写权限：MCP 只读、连接器 OAuth token 无 repo scope（x-oauth-scopes 为空 → git push 403 denied to ming-ni-we）、gh 未登录、credential helper 返回空。需外部提供 GITHUB_TOKEN（fine-grained，Contents: Read and write）",
+      "blocked_by": [
+        "S13"
+      ],
+      "block_reason": "流程上等 S13 完成后一起推（用户 2026-10-13 11:45 决策，非技术阻塞）；技术上唯一阻塞仍是 GITHUB_TOKEN：本环境所有通道均无代码写权限——MCP 只读、连接器 OAuth token 无 repo scope（x-oauth-scopes 为空 → git push 403 denied to ming-ni-we）、gh 未登录、credential helper 返回空。如需提前推，随时可单独执行。",
       "owns_files": [
         "/workspace/marionette-git"
       ],
@@ -322,7 +324,9 @@
         "unpushed_since": "3ac1cc3（远端当前位置）",
         "check_cmd": "git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD",
         "check_note": "输出 \"<落后> <领先>\"；左边为 0 即干净 fast-forward。数字会随阶段提交增长，勿写死",
-        "commit_chain": "c9f6da5 → df97c19 → 1d41b70 → c74bcde → cc7ef15（截至 2026-10-13，均待推）"
+        "commit_chain": "c9f6da5 → df97c19 → 1d41b70 → c74bcde → cc7ef15（截至 2026-10-13，均待推）",
+        "decision": "等 S13 完成后一起推；如需提前推可随时单独执行",
+        "alternative": "/workspace/marionette-main.bundle（1.1MB 完整历史快照，免 PAT 搬运；会随提交过期，需重新生成）"
       },
       "next_command": "cd /workspace/marionette && export GITHUB_TOKEN=<PAT> && ./scripts/push-to-github.sh --dry-run \"feat(story): S1–S12\" && ./scripts/push-to-github.sh \"feat(story): S1–S12\""
     },
@@ -429,9 +433,9 @@
     "authoritative": true,
     "reviewed_at": "2026-10-13",
     "next_in_order": [
-      "GIT (推 GitHub，只差 PAT)",
-      "S13 会话列表",
-      "S14 联调",
+      "S13 会话列表（当前）",
+      "S14 联调 + 回归 + 重新部署",
+      "GIT 推 GitHub（S1–S13 一次推完，需 PAT 或 bundle）",
       "INFRA: COS 异地备份",
       "INFRA: 域名+HTTPS",
       "INFRA: P2 加固"
@@ -441,6 +445,9 @@
       "INFRA-cos": "腾讯云 COS 密钥",
       "INFRA-https": "域名",
       "INFRA-deepseek": "新的 DeepSeek key"
-    }
+    },
+    "decided_at": "2026-10-13 11:45",
+    "decision": "用户拍板：先做 S13，代码连同 GitHub 推送一起做（不单独推 S1–S12）",
+    "code_authority_until_push": "服务器 ubuntu@101.33.117.223:/opt/marionette（GitHub 仍是旧版 3ac1cc3，勿从 GitHub 取码）"
   }
 }

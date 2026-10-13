@@ -33,6 +33,9 @@ export GITHUB_TOKEN=<你的 fine-grained PAT>     # 需 Contents: Read and write
 >
 > 💡 **不想把 PAT 交给沙箱？** 用 [方案 C](#方案-c--用-bundle-手工搬运不想把-pat-交给沙箱时用这条) 的现成 bundle
 > （`/workspace/marionette-main.bundle`），在你自己有登录态的机器上推，效果完全相同。
+>
+> 📌 **2026-10-13 11:45 用户决策**：不单独推 S1–S12，**等 S13 完成后一起推**。
+> 在此之前 GitHub 保持旧版，**取码请以服务器 `/opt/marionette` 为准**（见 `task-GET-CODE.md`）。
 
 ---
 
