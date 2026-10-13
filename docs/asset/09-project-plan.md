@@ -27,7 +27,7 @@
 | **M1** | 剧情引擎后端 + 前端（S1–S12） | ✅ **已完成并上线** | — |
 | **M2** | 会话列表接入剧情（S13） | ⬜ **未开始** | — |
 | **M3** | 全链路联调 + 回归（S14） | 🟡 一半 | S13 |
-| **M4** | 代码同步 GitHub | 🟡 **就绪待推**（本地最新 `c74bcde`，4 个提交未上远端） | **PAT**（连接器已证无效） |
+| **M4** | 代码同步 GitHub | 🟡 **就绪待推**（代码全在本地 git，从未上远端） | **PAT**（连接器已证无效） |
 | **M5** | 基础设施加固 | 🟡 部分 | 密钥 / 域名 |
 
 ---
@@ -90,13 +90,13 @@
 
 | 项 | 状态 |
 |---|---|
-| S1–S12 + 资产文档同步进 git 仓库 | ✅ 已完成（本地提交 `1d41b70`） |
+| S1–S12 + 资产文档同步进 git 仓库 | ✅ 已完成（本地已提交，见 `task-GIT-push.md` 提交链） |
 | 代码规模核对 | ✅ 90 个 backend `.py` / 126 个前端 `.ts/.tsx` |
 | 五项校验 | ✅ 全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke） |
 | 敏感文件防线 | ✅ 通过（无 `.env` / `.backup-env` / 私钥） |
 | MCP GitHub connector | ❌ **实测只读**（`push_files` → 403 `Resource not accessible by integration`） |
 | GitHub 连接器 OAuth token | ❌ **实测无 `repo` scope**（`x-oauth-scopes` 为空 → `git push` 403 `denied to ming-ni-we`） |
-| 与远端的关系 | 本地领先 **4** 个提交（`c9f6da5`/`df97c19`/`1d41b70`/`c74bcde`），落后 0，可 fast-forward |
+| 与远端的关系 | 本地领先若干提交（`c9f6da5` 起）、落后 0，可 fast-forward；**数量以 `git rev-list --left-right --count origin/main...HEAD` 实测为准** |
 | **`GITHUB_TOKEN`（PAT）** | ⏳ **缺 —— 唯一阻塞项** |
 
 **一条命令完成**：

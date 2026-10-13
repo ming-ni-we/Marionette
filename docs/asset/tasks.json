@@ -307,15 +307,7 @@
       "script": "cd /workspace/marionette && export GITHUB_TOKEN=xxx && ./scripts/push-to-github.sh \"feat(story): S1–S12\"",
       "state": {
         "synced_into_git": true,
-        "precommit": "c74bcde",
-        "unpushed_commits": [
-          "c9f6da5",
-          "df97c19",
-          "1d41b70",
-          "c74bcde"
-        ],
         "remote_head": "3ac1cc3",
-        "ahead_behind": "领先 4 / 落后 0（可 fast-forward）；数量随阶段提交增长，以 `git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD` 实测为准",
         "verify": "五项全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke）",
         "sensitive_check": "通过（无 .env / .backup-env / 私钥）",
         "pending": "只有 git push 未执行（缺 PAT）",
@@ -325,8 +317,12 @@
           "result": "403 Permission to ming-ni-we/Marionette.git denied to ming-ni-we",
           "root_cause": "x-oauth-scopes 为空 → 该 OAuth App 未申请 repo/public_repo scope",
           "trap": "GET /repos/... 的 permissions.push=true 只代表用户权限，不代表 token scope，勿据此判断可推",
-          "side_effect": "无害：提交都留在本地（最新 c74bcde），拿到 PAT 后直接推即可，无需重提"
-        }
+          "side_effect": "无害：提交都留在本地，拿到 PAT 后直接推即可，无需重提"
+        },
+        "unpushed_since": "3ac1cc3（远端当前位置）",
+        "check_cmd": "git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD",
+        "check_note": "输出 \"<落后> <领先>\"；左边为 0 即干净 fast-forward。数字会随阶段提交增长，勿写死",
+        "commit_chain": "c9f6da5 → df97c19 → 1d41b70 → c74bcde → cc7ef15（截至 2026-10-13，均待推）"
       },
       "next_command": "cd /workspace/marionette && export GITHUB_TOKEN=<PAT> && ./scripts/push-to-github.sh --dry-run \"feat(story): S1–S12\" && ./scripts/push-to-github.sh \"feat(story): S1–S12\""
     },
@@ -423,10 +419,10 @@
     "credential": "GITHUB_TOKEN（fine-grained PAT, Contents: Read and write）；本环境连接器 OAuth token 无 repo scope，不可用",
     "repo": "https://github.com/ming-ni-we/Marionette",
     "branch": "main",
-    "local_head": "c74bcde",
+    "local_head": "见 check_cmd（不写死，避免与实测不符）",
     "remote_head": "3ac1cc3",
-    "unpushed": 4,
-    "note": "unpushed 数量随阶段提交增长，以 rev-list 实测为准"
+    "note": "unpushed 数量随阶段提交增长，以 rev-list 实测为准",
+    "check_cmd": "git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD"
   },
   "project_plan": {
     "card": "09-project-plan.md",

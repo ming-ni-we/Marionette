@@ -164,15 +164,16 @@ git -C /workspace/marionette-git ls-remote origin refs/heads/main
 | 项 | 状态 |
 |---|---|
 | `scripts/push-to-github.sh` | ✅ 已写好并通过故障注入测试 |
-| S1–S12 + 资产文档同步进 git 仓库 | ✅ 已提交 `1d41b70`（90 个 backend `.py` / 126 个 `.ts|.tsx`） |
+| S1–S12 + 资产文档同步进 git 仓库 | ✅ 已提交（90 个 backend `.py` / 126 个 `.ts|.tsx`；提交链见 `task-GIT-push.md`） |
 | 五项校验 | ✅ 全绿（402 passed, 44 skipped / ruff / tsc / SSE / smoke） |
 | 敏感文件防线 | ✅ 通过 |
 | 推送凭据 | ❌ **本环境所有通道均无写权限**（连接器 token 无 `repo` scope，实测 403） |
 | 实际推送 | ⏳ **待你提供 PAT** 后一条命令完成 |
 
 **2026-10-13 11:32 实测**：完整跑通脚本四步，前三项全绿并在本地生成 `1d41b70`，
-**第 4 步推送 403**。本地领先远端 4 个提交（最新 `c74bcde`），落后 0。**这些提交都在，不会丢**，
-拿到 PAT 后一次推完。
+**第 4 步推送 403**。本地领先远端若干提交、落后 0 —— **这些提交都在本地，不会丢**，
+拿到 PAT 后一次推完。数量自己测：
+`git -C /workspace/marionette-git rev-list --left-right --count origin/main...HEAD`
 
 **下一步**：拿到 PAT 后执行
 
