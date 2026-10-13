@@ -15,7 +15,96 @@
 | 环境 | Docker 29.6.1 + Compose v5.3.1 |
 | 到期 | **2026-11-09**（按月，记得续费） |
 | 访问口令 | 已设置（见 `.env`，不进 git） |
+| **SSH 登录** | `ubuntu@101.33.117.223`，口令 **`WBAccess@1`**（2026-10-13 由用户提供，用于自动化部署） |
 | 服务器登录口令 | 偏短，**建议改强或改密钥登录**（见 §5） |
+
+### 1.1 ⚠️ 服务器不是 git 仓库（部署方式必读）
+
+线上 `/opt/marionette` 是**源码目录**，**没有 `.git`**（`git log` 报
+`fatal: not a git repository`）。历史上是通过源码包（`/home/ubuntu/marionette-src*.tar.gz`）
+上传部署的，所以**不能在服务器上 `git pull`**。
+
+更新代码的正确姿势是**从沙箱侧把 git bundle 传上去**：
+
+```bash
+# 沙箱侧：生成 bundle（含完整历史）
+cd <repo> && git bundle create marionette.bundle HEAD
+md5sum marionette.bundle                      # 记住校验值
+
+# 传输（沙箱侧）
+sshpass -e scp -o StrictHostKeyChecking=no marionette.bundle ubuntu@101.33.117.223:/home/ubuntu/
+# 服务器侧：用 bundle 当远端 clone
+cd /home/ubuntu && rm -rf marionette-new
+git clone marionette-fix2.bundle marionette-new
+```
+
+### 1.2 ⚠️ 前端产物烤进 api 镜像 —— 更新前端必须重建镜像
+
+`backend/Dockerfile` 是多阶段构建，第一段编译 `frontend/`，第二段把产物复制进去：
+
+```dockerfile
+COPY --from=web /src/frontend/dist /app/static
+```
+
+**所以「更新前端」≠ 替换静态文件，而是重新构建 api 镜像 + 重启容器。**
+
+### 1.3 ⚠️ 部署时绝不能另起一套 db / caddy
+
+`docker-compose.yml` 用**相对路径**挂载数据：`./data/pgdata`、`./data/assets`、`./data/caddy`。
+若在**新目录**（如 `/home/ubuntu/marionette-new`）直接 `docker compose up`，
+会**新建一套空数据库**，生产数据全部读不到。
+
+正确做法（2026-10-13 实测有效）：**只构建镜像，在原项目里替换重启**：
+
+```bash
+# 1) 新代码目录里构建镜像（不 up）
+cd /home/ubuntu/marionette-new
+sudo docker build -f backend/Dockerfile -t marionette-api:newfix .
+
+# 2) 校验镜像内产物特征
+sudo docker run --rm --entrypoint sh marionette-api:newfix -c 'ls /app/static/assets/'
+
+# 3) 备份当前镜像（回滚用）
+sudo docker tag marionette-api marionette-api:pre-<变更名>-$(date +%Y%m%d-%H%M%S)
+
+# 4) 回到**原**项目目录，只重启 api（--no-deps 不碰 db / caddy）
+cd /opt/marionette
+sudo docker tag marionette-api:newfix marionette-api:latest
+sudo docker compose up -d --no-deps --force-recreate api
+
+# 5) 等健康检查
+for i in $(seq 1 40); do
+  st=$(sudo docker inspect marionette-api --format '{{.State.Health.Status}}')
+  [ "$st" = healthy ] && { echo healthy; break; }; sleep 3
+done
+```
+
+### 1.4 部署验收判据（必做）
+
+**不要只看容器起来就宣布成功**——要验证「用户看到的产物变了」。
+
+```bash
+# 判据 A：线上首页引用的 JS 文件名，必须等于本次构建的新文件名
+curl -s http://101.33.117.223/ | grep -o 'index-[A-Za-z0-9]*\.js'
+
+# 判据 B：新包里应有本次修复的特征，且不含旧版特征
+curl -s http://101.33.117.223/assets/<新文件名>.js -o /tmp/new.js
+grep -c playBlockReason /tmp/new.js     # 开演修复：应 >= 1
+grep -c _turnKey        /tmp/new.js     # 气泡修复：应 >= 1
+grep -c 'preset_id:""'  /tmp/new.js     # 旧空串写法：应为 0
+```
+
+**回滚**（新镜像有问题时）：
+
+```bash
+cd /opt/marionette
+sudo docker tag marionette-api:pre-<变更名>-<时间戳> marionette-api:latest
+sudo docker compose up -d --no-deps --force-recreate api
+```
+
+> **历史教训（2026-10-13）**：`2872bc5` 修好了「开演必失败」并提交，
+> 但**从未部署**，用户线上依然报错。详见 `04-pitfalls.md` D10 ——
+> **「修好了」和「上线了」是两件事。**
 
 ---
 

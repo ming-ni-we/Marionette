@@ -279,13 +279,24 @@ preset_id: '',          // ← 后端必填 UUID
 （`backend/Dockerfile` 的 `COPY --from=web /src/frontend/dist /app/static`），
 所以更新前端 = **重新构建 api 镜像 + 重启容器**。
 
+**已修复（2026-10-13）**：用户提供 SSH 凭据后完成部署。
+线上产物 `index-DAZGvsr6.js` → **`index-CD95XgpK.js`**，特征齐全，
+开演 201、两轮气泡落库顺序均验收通过。完整过程见
+`07-status-and-backlog.md` §5.8 问题②、`task-INFRA-ops.md`「待办 X」。
+
+⚠️ 部署时另一个坑：`docker-compose.yml` 用**相对路径**挂数据
+（`./data/pgdata`、`./data/assets`、`./data/caddy`）。若在**新目录**直接
+`docker compose up`，会**新建一套空数据库**、生产数据读不到。
+正确做法是**只在新目录构建镜像，回原目录 `/opt/marionette` 替换重启**
+（`--no-deps --force-recreate api`）。
+
 **教训**：
 
 > **「修好了」和「上线了」是两件事。**
 > 提交、校验全绿只能证明**仓库里的代码对了**，不能证明**用户那边看到的东西变了**。
 > 报告修复完成前，必须先在**用户实际访问的那个地址**上验证（或明确声明"未部署"）。
 > 本项目的验收判据是：`curl <线上地址>/` 拿到的 `index-*.js` 文件名，
-> 与本次本地构建产物名一致，且新包特征齐全。
+> 与本次构建产物名一致，且新包特征齐全。
 
 ### D11. ⚠️ 同一角色每轮 `speaker_id` 相同 → 第二轮回复写到第一轮气泡里
 

@@ -608,12 +608,12 @@ PASS  剧情多轮气泡顺序  第二轮用户@3 回复@4 首轮气泡误膨胀
 [结论] PASS
 ```
 
-#### 问题 ② 线上依然无法开演 —— **修复从未部署**
+#### 问题 ② 线上依然无法开演 —— **修复从未部署**（已修复并上线 ✅）
 
 D9 修完并提交 `2872bc5` 之后，用户反馈线上「依然无法开演」。
 实测对照线上 JS 与本地新构建产物：
 
-| 特征 | 线上 `index-DAZGvsr6.js` | 本地 `index-DCcJtofX.js` |
+| 特征 | 线上 `index-DAZGvsr6.js` | 本地 `index-CD95XgpK.js` |
 |---|---|---|
 | `playBlockReason` | 0 | **2** |
 | `_turnKey` | 0 | **3** |
@@ -625,10 +625,49 @@ D9 修完并提交 `2872bc5` 之后，用户反馈线上「依然无法开演」
 （`backend/Dockerfile` → `COPY --from=web /src/frontend/dist /app/static`），
 所以更新前端 = **重新构建 api 镜像 + 重启容器**，不能只替换静态文件。
 
-**阻塞**：沙箱无 SSH 凭据（`Permission denied (publickey,password)`，
-`~/.ssh` 只有 `known_hosts`），服务器仅开放 22/80，无其他上传入口。
-已产出 `deploy-frontend-fix.sh`（含镜像备份 + 回滚提示 + 产物校验），
-待用户提供 SSH 通道后执行。
+**部署过程**（2026-10-13，用户提供 SSH 凭据 `ubuntu@101.33.117.223` 后完成）：
+
+| 步骤 | 命令要点 | 结果 |
+|---|---|---|
+| 1 | `git bundle` → `md5sum` → `scp` 上传 | 1.9 MB，MD5 `64abf05a…` 两端一致 |
+| 2 | 服务器 `git clone marionette-fix2.bundle marionette-new` | HEAD `1954a4d`，修复特征齐全 |
+| 3 | 备份当前镜像 | `marionette-api:pre-bubblefix-20261013-145629` |
+| 4 | `sudo docker build -f backend/Dockerfile -t marionette-api:newfix .` | 成功，产物 `index-CD95XgpK.js` |
+| 5 | 镜像内特征校验 | `playBlockReason=2` / `_turnKey=3` / `preset_id:""=0` |
+| 6 | **原目录**替换重启（`--no-deps --force-recreate api`） | healthy，镜像 ID `9caf9806` → `9757102c` |
+| 7 | 线上验收 | 首页 JS 变 `index-CD95XgpK.js`；特征与镜像一致 |
+
+> ⚠️ 关键坑：`docker-compose.yml` 用**相对路径**挂数据（`./data/pgdata` 等），
+> 若在新目录直接 `docker compose up` 会**新建空库**、读不到生产数据。
+> 必须**只构建镜像，回原目录 `/opt/marionette` 替换重启**。
+
+**线上业务验收**（真实 deepseek-chat，会话 `ec6cf476-d930-485a-8759-7a20972f28ca`）：
+
+- **开演成功**：`POST /sessions` → **201**，`spec=story_session`，序幕 2 段旁白由真模型生成
+- **第 1 轮 SSE**：旁白 `speaker_switch`（`is_narration=true`，带 `message_id`）
+  → `c2` 白发 delta（本轮首个说话人**不发** switch）→ `node n1 雾中的转学生`
+- **第 2 轮 SSE**：**`delta` 说话人仍是 `c2`** —— 精确复现了 bug 的触发条件
+  （同角色跨轮 `speaker_id` 相同）
+- **落库顺序验证**：8 条消息，`白鸟 澪` 在两轮**各有一条独立消息**
+  （`[4]` turn0 / `[7]` turn1），未被合并 —— 证明 `_turnKey` 边界生效
+
+```
+[0][1] 序幕旁白
+[2]    用户：我抬起头，问那个站着的人：你是谁？
+[3]    旁白（turn 0）
+[4]    白鸟 澪（turn 0）  ← 第一轮回复
+[5]    用户：我追问：你说你等了我很久，为什么？
+[6]    旁白（turn 1）
+[7]    白鸟 澪（turn 1）  ← 第二轮回复，独立新气泡 ✅
+```
+
+**回滚方式**：
+```bash
+sudo docker tag marionette-api:pre-bubblefix-20261013-145629 marionette-api:latest
+cd /opt/marionette && sudo docker compose up -d --no-deps --force-recreate api
+```
+
+**部署方法与凭据已归档**：`03-deployment.md` §1.1–§1.4、`task-INFRA-ops.md`「待办 X」。
 
 #### 教训
 
@@ -651,7 +690,7 @@ D9 修完并提交 `2872bc5` 之后，用户反馈线上「依然无法开演」
 | 导演降级时不透明 | 用户只看到质量波动 | `director` 事件带 `degraded` 标记，S12 需展示 |
 | 无域名走 HTTP | Cookie 明文传输 | 见运维卡待办 2 |
 | 备份未配置 | 数据丢失不可恢复 | 见运维卡待办 1（最高优先） |
-| 服务器代码落后 | 剧情功能线上不可用 | **已确认为当前最高优先缺口**：线上前端是旧版（`preset_id:""` 仍在），`2872bc5`（开演修复）与 `e3c0a33`（气泡修复）均未部署。见 §5.8 问题② |
+| ~~服务器代码落后~~ | ~~剧情功能线上不可用~~ | ✅ **已解决（2026-10-13）**：新镜像已部署，线上产物 `index-CD95XgpK.js`，开演 201 + 两轮气泡落库顺序均验收通过。见 §5.8 问题② |
 | 代码未推 GitHub | 单点存放，无异地备份 | 见 Git 卡 |
 | 集成测试需真实 PG | 本地只能 skip | 服务器上跑 |
 | **同一契约有多个调用点** | 修一个漏一个（已发生过：S13 漏 world-editor） | 守卫脚本改为**全仓扫描**；修契约时先枚举全部调用点 |
