@@ -344,6 +344,101 @@ for (let i = next.length - 1; i >= 0; i -= 1) {
 
 ---
 
+### D12. ⚠️ 非流式 JSON 调用的 `max_tokens` 过紧 → 输出被截断 → **静默降级**
+
+**现象**：线上游玩《木叶 · 雾中之刃》时，剧情「能跑，但不对」：
+
+| 症状 | 表现 |
+|---|---|
+| 只有单一角色说话 | 连续 3 轮都是卡卡西（`c1`）在接话，樱和佐助从不开口 |
+| 节点永久不动 | `node_id` 始终为 `null`，5 个节点一个都没触发 |
+| 行动建议恒为空 | `actions` 事件从不出现，建议区整块消失 |
+
+而同样引擎上的《雾隐町》一切正常（日志有 `director decided | speakers=['c2'] node=n1`）。
+
+**根因**：导演（`director.py`）与建议器（`action_suggester.py`）都是
+**非流式 JSON 调用**——让模型吐一段严格 JSON，再用 `_extract_json` 解析。
+但两者的 `max_tokens` 都设得过紧：
+
+```python
+_DIRECTOR_PARAMS = {"temperature": 0.4, "max_tokens": 512}   # ← 不够
+_SUGGEST_PARAMS  = {"temperature": 0.8, "max_tokens": 200}   # ← 更不够
+```
+
+《木叶 · 雾中之刃》的角色 `voice` / `goals` 描述比《雾隐町》详细得多，
+导演要在裁决 JSON 里为**多个 speaker** 各写一段 `direction`，
+**603 字符的预期输出 > 512 token** → JSON 写到一半被硬截断：
+
+```
+{"speakers":["c2","c1"],"node_triggered":"n1","directions":{"c2":"…（写到这里断
+```
+
+`_extract_json` 的三策略（直接 `loads` → 剥 markdown 围栏 → 取首 `{` 到末 `}`）
+**全部失败**（`rfind("}")` 找不到闭合括号）→ 判定为「不可解析」→
+`DirectorDecision.fallback()` 让**固定一个角色**接话 → 节点不推进。
+建议器同理，JSON 截断后返回空列表 → 建议区消失。
+
+**这才是最毒的地方：整条降级路径完全静默。** 前端只看到「只有一个角色说话」，
+日志里只有一行 `director L1 output unparsable`，没有任何线索指向 `max_tokens`。
+连查三轮才通过对比《雾隐町》的日志定位到根因。
+
+**修法**（两处同源缺陷一并修）：
+
+```python
+# director.py
+_DIRECTOR_PARAMS = {"temperature": 0.4, "max_tokens": 1024}
+#: 触发「疑似被截断」告警的字符数下限（512 token ≈ 400-600 中文字符）
+_DIRECTOR_TRUNCATION_HINT = 600
+
+# action_suggester.py
+_SUGGEST_PARAMS = {"temperature": 0.8, "max_tokens": 400}
+```
+
+并把降级日志**一分为二**，让下次一眼能认出是截断还是模型乱写：
+
+```python
+if parsed is None:
+    if len(raw) >= _DIRECTOR_TRUNCATION_HINT:
+        logger.warning("director output likely TRUNCATED (len=%d, max_tokens=%s) —— "
+                       "裁决 JSON 未写完。考虑提高 max_tokens 或精简角色 voice/goals。head=%r", …)
+    else:
+        logger.warning("director output unparsable and NOT truncated (len=%d) —— "
+                       "疑似模型未按 JSON 输出。head=%r", …)
+```
+
+**为什么这个缺陷长期无法被修**（最直接的教训）：
+
+单测里把参数值**钉死**了 ——
+
+```python
+# 修改前的旧断言，正是它让缺陷无法被修：
+assert params["max_tokens"] == 512
+assert params["max_tokens"] == 200
+```
+
+任何一个想提高 `max_tokens` 的人（或 AI）都会被这两个断言拦下。
+**断言常量值 = 把缺陷焊死在测试里。** 改为引用常量 + 只断言下限：
+
+```python
+from app.services.director import _DIRECTOR_PARAMS
+assert params["max_tokens"] == _DIRECTOR_PARAMS["max_tokens"]
+assert params["max_tokens"] >= 1024        # 只锁「留够头room」这个意图
+```
+
+**回归守卫**：新增 `TestTruncationGuard`（`test_director.py`）与
+`TestSuggestTokenHeadroom`（`test_action_suggester.py`），断言
+「token 头room 充足」+「长输出被记为截断」+「短乱码被记为非截断」三种情形。
+
+> **教训（可迁移）**：
+> 1. **凡是非流式 JSON 调用，`max_tokens` 必须留足头room**——
+>    被截断的 JSON 不报语法错，而是**静默降级**，比抛异常更难查。
+> 2. **单测不要断言具体参数值，要断言「意图」**（这里 = 头room ≥ 某下限）。
+>    钉死数值的断言会把缺陷锁死在测试里，让后来者以为是「设计如此」。
+> 3. **降级日志必须能区分原因**。「无法解析」一句话背后可能是截断、可能是模型乱写，
+>    诊断信息不同，排查路径完全不同。
+
+---
+
 ## E. 前端工程
 
 | # | 坑 | 根因 | 修法 |
