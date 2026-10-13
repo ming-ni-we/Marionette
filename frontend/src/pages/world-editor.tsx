@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { emptyWorld, sessionsApi, worldsApi } from '@/api/client';
+import { emptyWorld, cardsApi, presetsApi, sessionsApi, worldsApi } from '@/api/client';
 import type {
   WorldCastMember,
   WorldInput,
@@ -59,6 +59,28 @@ export function WorldEditorPage() {
     queryKey: ['world', worldId],
     queryFn: () => worldsApi.get(worldId),
     enabled: !isNew,
+    retry: false,
+  });
+
+  /**
+   * 「开演」要用的卡片与预设清单。
+   *
+   * 剧情会话创建时后端**强制要求** `character_card_id` / `preset_id` 两个真实
+   * UUID（`SessionCreateRequest`），且 `create_story_session()` 会真的去查这两行，
+   * 查不到就抛 `NotFoundError`。所以「用这个世界开演」不能只传 `world_id` ——
+   * 之前这里传了空串，必然被后端拒（Pydantic 422 或 400 缺少必填参数）。
+   *
+   * 这里拉全量清单，配合下面的 `linkedCardId` / `defaultPresetId` 自动补默认值，
+   * 让「一键开演」仍然是一键。
+   */
+  const cardsQ = useQuery({
+    queryKey: ['cards', 'world-play'],
+    queryFn: () => cardsApi.list({ limit: 100 }),
+    retry: false,
+  });
+  const presetsQ = useQuery({
+    queryKey: ['presets', 'world-play'],
+    queryFn: () => presetsApi.list({ limit: 100 }),
     retry: false,
   });
 
@@ -147,21 +169,59 @@ export function WorldEditorPage() {
   });
 
   /**
+   * 「开演」用的角色卡：优先取 cast 上显式关联的卡，其次按名字匹配，最后兜底第一张。
+   *
+   * 与 `new-session-dialog.tsx` 的 `linkedCardId` 同一套优先级 —— 那边是用户在
+   * 对话框里显式选，这边是编辑器里的**一键开演**（无选卡界面），所以更依赖自动补：
+   *   1. cast 成员上写的 `card_id`（作者指定，最权威）
+   *   2. cast 成员的 `name` 与卡片 `data.name` 同名（老数据的常见形态）
+   *   3. 兜底：第一张卡
+   */
+  const linkedCardId = useMemo(() => {
+    const cards = cardsQ.data?.items ?? [];
+    for (const member of draft.cast ?? []) {
+      if (member.card_id) {
+        const hit = cards.find((c) => c.id === member.card_id);
+        if (hit) return hit.id;
+      }
+    }
+    for (const member of draft.cast ?? []) {
+      const hit = cards.find((c) => c.data.name === member.name);
+      if (hit) return hit.id;
+    }
+    return cards[0]?.id ?? '';
+  }, [cardsQ.data, draft.cast]);
+
+  /** 开演用的预设：一键开演没有选预设的界面，取第一份可用预设。 */
+  const defaultPresetId = presetsQ.data?.items?.[0]?.id ?? '';
+
+  /** 两个必填项都齐了才允许开演 —— 否则让按钮禁用并说明原因，别再让用户吃一次 400。 */
+  const canPlay = !dirty && !isNew && Boolean(linkedCardId) && Boolean(defaultPresetId);
+
+  const playBlockReason = dirty
+    ? '先保存改动再开演。'
+    : isNew
+      ? '先保存这个世界才能开演。'
+      : !linkedCardId
+        ? '内容库里还没有角色卡。先建一张，或在角色群里关联已有卡。'
+        : !defaultPresetId
+          ? '还没有可用的预设。请先在「预设」里建一份。'
+          : '';
+
+  /**
    * 开演：先建会话再跳转。
    *
    * 剧情会话需要 `character_card_id` / `preset_id`——即使多角色模式下主角由
-   * 世界观的角色群定义，后端仍要求这两个字段（沿用 1v1 的表约束）。
-   * 这里取世界的 `cast[0]` 对应的卡；没有则留空由后端校验兜底。
+   * 世界观的角色群定义，后端仍要求这两个字段（沿用 1v1 的表约束），且会真的
+   * 查这两行。所以这里必须传**真实 id**，空串会被 422/400 直接拒。
    */
   const play = useMutation({
-    mutationFn: async () => {
-      const lead = draft.cast[0];
-      return sessionsApi.create({
-        character_card_id: lead?.card_id ?? '',
-        preset_id: '',
+    mutationFn: () =>
+      sessionsApi.create({
+        character_card_id: linkedCardId,
+        preset_id: defaultPresetId,
         world_id: worldId,
-      });
-    },
+      }),
     onSuccess: (session) => navigate(`/stories/${session.id}`),
     onError: () =>
       toast.danger(
@@ -211,6 +271,8 @@ export function WorldEditorPage() {
         canSave={canSave}
         onSave={() => save.mutate()}
         onPlay={() => play.mutate()}
+        playDisabled={!canPlay}
+        playBlockReason={playBlockReason}
       />
 
       {query.isError ? (
@@ -304,6 +366,8 @@ export function WorldEditorPage() {
                     variant="secondary"
                     onClick={() => play.mutate()}
                     loading={play.isPending}
+                    disabled={!canPlay}
+                    title={canPlay ? undefined : playBlockReason}
                   >
                     <Compass className="size-4" aria-hidden="true" />
                     用这个世界开演

@@ -17,6 +17,8 @@ export function WorldEditorHeader({
   canSave,
   onSave,
   onPlay,
+  playDisabled,
+  playBlockReason,
 }: {
   title: string;
   isNew: boolean;
@@ -30,6 +32,10 @@ export function WorldEditorHeader({
   onSave: () => void;
   /** 保存成功后才有意义：直接拿这个世界观开一局 */
   onPlay?: () => void;
+  /** 开演前置条件是否满足（缺卡/缺预设时为 true，按钮禁用） */
+  playDisabled?: boolean;
+  /** 禁用原因，作为 title 提示 —— 别让用户对着灰按钮猜 */
+  playBlockReason?: string;
 }) {
   return (
     <header className="sticky top-0 z-sticky border-b border-border bg-surface/95 px-6 py-2.5 backdrop-blur-[2px]">
@@ -78,8 +84,8 @@ export function WorldEditorHeader({
               variant="secondary"
               size="sm"
               onClick={onPlay}
-              disabled={dirty}
-              title={dirty ? '有未保存的修改，先保存再开演' : '用这个世界观开一局剧情'}
+              disabled={dirty || playDisabled}
+              title={playBlockReason || (dirty ? '有未保存的修改，先保存再开演' : '用这个世界观开一局剧情')}
             >
               <Play className="size-4" aria-hidden="true" />
               开演
