@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { App } from '@/App';
+import { sessionHref } from '@/pages/session-list';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toast';
 
@@ -37,6 +38,89 @@ export function mount(path: string): Root {
  * 把 SSE 事件链路与三态命中判定从页面里抽出来直接跑一遍，证明逻辑真的成立。
  */
 export { mockStream, mockStoryStream, mockWorldBookTest, SAMPLE_WORLDBOOKS } from '@/mocks/fixtures';
+
+/**
+ * 会话列表的剧情集成探针（S13 回归守卫，S14 验收）。
+ *
+ * 为什么必须驱动**真实页面**而不是复制一份判定逻辑：
+ * 离线演示数据与真实后端数据的形状不同（真实数据里 `world_id` 一定存在，
+ * 演示数据靠 `spec` 判定），只测离线路径会漏掉「世界观标题查不到 →
+ * 退化成裸 UUID」这类只在联调时暴露的 bug。
+ *
+ * 检查四件事：
+ *   1. 剧情会话与 1v1 会话在同一列表里**都出现**；
+ *   2. 剧情条目带「剧情」标识；
+ *   3. 剧情条目**链接指向 /stories/:id**，1v1 指向 /sessions/:id；
+ *   4. 剧情条目标题显示所属世界观名，不是裸 id。
+ */
+export async function probeSessionList(): Promise<{
+  rows: Array<{ isStory: boolean; title: string }>;
+  hasStory: boolean;
+  hasRpg: boolean;
+  storyBadgeCount: number;
+  storyTitleShowsWorld: boolean;
+  storyHrefOk: boolean;
+  rpgHrefOk: boolean;
+}> {
+  const container = document.getElementById('root');
+  if (!container) throw new Error('缺少 #root');
+
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 0 }, mutations: { retry: false } },
+  });
+  const root = createRoot(container);
+  root.render(
+    <StrictMode>
+      <QueryClientProvider client={qc}>
+        <TooltipProvider delayDuration={0}>
+          <MemoryRouter initialEntries={['/sessions']}>
+            <App />
+          </MemoryRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+
+  await new Promise((r) => setTimeout(r, 500));
+
+  // 列表项是 <li> 内含 <button onClick={navigate(...)}>，没有 <a href>。
+  // 因此按 <li> 读条目，跳转分派改由直接调 sessionHref 验证。
+  const items = Array.from(container.querySelectorAll('li')).filter((li) =>
+    li.querySelector('button'),
+  );
+  const rows: Array<{ isStory: boolean; title: string }> = [];
+  for (const li of items) {
+    const text = (li.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!text) continue;
+    rows.push({ isStory: /剧情/.test(text), title: text });
+  }
+
+  const bodyText = (container.textContent || '').replace(/\s+/g, ' ');
+  const storyBadgeCount = (bodyText.match(/\u5267\u60c5/g) || []).length;
+
+  // 标题退化成裸 UUID 视为失败
+  const looksLikeUuid = (s: string) => /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}/i.test(s);
+  const storyTitleShowsWorld =
+    rows.some((r) => r.isStory) && rows.filter((r) => r.isStory).every((r) => !looksLikeUuid(r.title));
+
+  // 直接验证分派的正确性（导出函数，无需 DOM）
+  const storyHrefOk =
+    sessionHref({ id: 'x1', spec: 'story_session' }) === '/stories/x1' &&
+    sessionHref({ id: 'x2', spec: 'rpg_session', world_id: null }) === '/sessions/x2';
+  // 兜底分支：spec 缺失但有 world_id，仍应按剧情处理
+  const rpgHrefOk = sessionHref({ id: 'x3', spec: '', world_id: 'w-1' }) === '/stories/x3';
+
+  return {
+    rows,
+    hasStory: rows.some((r) => r.isStory),
+    hasRpg: rows.some((r) => !r.isStory),
+    storyBadgeCount,
+    storyTitleShowsWorld,
+    storyHrefOk,
+    rpgHrefOk,
+  };
+}
 
 /**
  * 剧情演出页的多角色渲染回归探针。

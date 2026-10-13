@@ -182,7 +182,7 @@ const ROUTES = [
   { path: '/presets/p1f0a1e2-0001-4c01-9b01-000000000001', expect: /日常向/ },
 ];
 
-const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime } = await import(
+const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList } = await import(
   pathToFileURL(outfile).href
 );
 
@@ -282,6 +282,11 @@ const hit = probeHitTest();
 const sse = await probeSse();
 const story = await probeStoryRuntime();
 
+/* ------------- 3.6) 会话列表的剧情集成（S13）------------- */
+// 必须先清空 root：上一个探针（probeStoryRuntime）已把页面挂在同容器上。
+document.getElementById('root').innerHTML = '';
+const sl = await probeSessionList();
+
 /* --------------------------------- 4) 报告 -------------------------------- */
 console.error = origErr;
 let failed = 0;
@@ -316,8 +321,26 @@ if (!story.ok) {
   console.log(`       旁白: ${story.narrationText.replace(/\s+/g, ' ').slice(0, 60)}`);
 }
 
+const slOk =
+  sl.hasStory &&
+  sl.hasRpg &&
+  sl.storyBadgeCount >= 1 &&
+  sl.storyTitleShowsWorld &&
+  sl.storyHrefOk &&
+  sl.rpgHrefOk;
+console.log(
+  `${slOk ? 'PASS' : 'FAIL'}  会话列表剧情集成  条目=${sl.rows.length} 剧情标识=${sl.storyBadgeCount} 世界观名=${sl.storyTitleShowsWorld} 跳转=${sl.storyHrefOk ? '/stories' : '✗'}/${sl.rpgHrefOk ? '/sessions' : '✗'}`,
+);
+if (!slOk) {
+  for (const r of sl.rows) {
+    console.log(`       [${r.isStory ? '剧情' : '单人'}] ${r.title.slice(0, 60)}`);
+  }
+  if (!sl.hasStory) console.log('       ✗ 列表里没有剧情会话');
+  if (!sl.hasRpg) console.log('       ✗ 列表里没有 1v1 会话');
+}
+
 const probeFailed =
-  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1);
+  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1);
 console.log(
   failed === 0 && errors.length === 0 && probeFailed === 0
     ? '\n[结论] PASS'
