@@ -12,6 +12,7 @@ import { ActionDock } from '@/components/story/action-dock';
 import { DirectorPanel, DirectorCue } from '@/components/story/director-panel';
 import { NodeBanner } from '@/components/story/node-banner';
 import { StoryReadingColumn } from '@/components/story/story-reading-column';
+import { Lightbox } from '@/components/story/lightbox';
 import { OfflineBanner } from '@/components/common/offline-banner';
 import { ErrorState } from '@/components/common/empty-state';
 import { Button } from '@/components/ui/button';
@@ -72,6 +73,8 @@ export function StoryRuntimePage() {
   // storyMode：消息行由后端建（「N 个说话者 = N 条消息」），前端不预建空气泡
   const chat = useChatStream({ sessionId: id, offline, storyMode: true });
   const [directorOpen, setDirectorOpen] = useState(false);
+  /** 灯箱当前展示的图（S16-8）；null = 关闭 */
+  const [lightbox, setLightbox] = useState<{ src: string; caption: string } | null>(null);
   const seededRef = useRef<string | null>(null);
 
   const { setMessages, setWorldInfoHits, setUsage, setError, setState, setStorySnapshot } = chat;
@@ -259,6 +262,8 @@ export function StoryRuntimePage() {
         speakers={speakerIndex}
         snapshot={snapshot}
         world={world}
+        sceneImages={chat.sceneImages}
+        onZoomImage={(src, caption) => setLightbox({ src, caption })}
         onRegenerate={
           offline
             ? undefined
@@ -316,6 +321,14 @@ export function StoryRuntimePage() {
           </Button>
         </div>
       ) : null}
+
+      {/* 配图灯箱（S16-8）：放在最外层，避免被阅读列的滚动容器裁切 */}
+      <Lightbox
+        open={lightbox !== null}
+        src={lightbox?.src ?? ''}
+        caption={lightbox?.caption ?? ''}
+        onClose={() => setLightbox(null)}
+      />
     </div>
   );
 }

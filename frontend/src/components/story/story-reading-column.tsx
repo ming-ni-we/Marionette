@@ -3,10 +3,12 @@ import { Button } from '@/components/ui/button';
 import { EmptyState } from '@/components/common/empty-state';
 import { MessageBubble } from '@/components/session/message-bubble';
 import { OpeningCard } from './opening-card';
+import { SceneImageBlock } from './scene-image-block';
 import { STATE_LABEL } from '@/mocks/fixtures';
 import { CircleAlert, RefreshCw, Sparkles, BookOpen, UsersRound } from '@/components/icons';
 import type { Message, SessionState, StorySnapshot, World } from '@/api/types';
 import type { SpeakerIndex } from '@/hooks/use-speakers';
+import type { SceneImage } from '@/hooks/use-chat-stream';
 
 /**
  * 剧情阅读列。
@@ -32,6 +34,9 @@ interface StoryReadingColumnProps {
   speakers: SpeakerIndex;
   snapshot?: StorySnapshot | null;
   world?: World | null;
+  /** 本轮流式收到的配图（S16-8）。回读路径走 `message.meta`，由本组件合并。 */
+  sceneImages?: SceneImage[];
+  onZoomImage?: (src: string, caption: string) => void;
   onRegenerate?: (messageId: string) => void;
   onRetry: () => void;
 }
@@ -44,6 +49,8 @@ export function StoryReadingColumn({
   speakers,
   snapshot,
   world,
+  sceneImages,
+  onZoomImage,
   onRegenerate,
   onRetry,
 }: StoryReadingColumnProps) {
@@ -54,16 +61,21 @@ export function StoryReadingColumn({
           <StoryEmptyState world={world} />
         ) : (
           <div>
-            {messages.map((msg) => (
-              <StoryBeat
-                key={msg.id}
-                message={msg}
-                speakers={speakers}
-                snapshot={snapshot}
-                world={world}
-                onRegenerate={onRegenerate}
-              />
-            ))}
+            {messages.map((msg) => {
+              const image = resolveSceneImage(msg, sceneImages);
+              return (
+                <div key={msg.id}>
+                  <StoryBeat
+                    message={msg}
+                    speakers={speakers}
+                    snapshot={snapshot}
+                    world={world}
+                    onRegenerate={onRegenerate}
+                  />
+                  {image ? <SceneImageBlock image={image} onZoom={onZoomImage} /> : null}
+                </div>
+              );
+            })}
           </div>
         )}
 
@@ -95,6 +107,27 @@ export function StoryReadingColumn({
       </div>
     </div>
   );
+}
+
+/**
+ * 合并两条配图来源，返回该消息该显示的图（没有则 `null`）。
+ *
+ * - **流式**：`image` 事件按 `message_id` 记在 `sceneImages` 里
+ * - **回读**：`message.meta.image_asset_id`（后端出图时落库，刷新后仍在）
+ *
+ * 优先级给流式：它带着 `reason`（图注文案），回读只有 asset_id。
+ * 两条路径共用同一个 `message_id` 锚点，所以同一张图不会被画两次。
+ */
+function resolveSceneImage(
+  msg: Message,
+  sceneImages: SceneImage[] | undefined,
+): SceneImage | null {
+  const streamed = sceneImages?.find((x) => x.messageId === msg.id);
+  if (streamed) return streamed;
+
+  const assetId = msg.meta?.image_asset_id;
+  if (!assetId) return null;
+  return { assetId, reason: 'node', messageId: msg.id };
 }
 
 /** 单条拍点：按 `meta` 分派到四种形态之一。 */

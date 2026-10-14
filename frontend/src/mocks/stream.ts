@@ -164,9 +164,23 @@ export function mockStoryStream(
   beats.forEach(([id, name, chunks], index) => {
     // 注意：只对 index > 0 发 speaker_switch —— 与后端完全一致。
     // 首个说话者后端刻意不发该事件，只发 delta + speaker_id；
-    // mock 若这里「补全」，G1 那类串行 bug 在离线路径上就永远测不出来。
+    // mock 这里若「补全」，G1 那类串行 bug 在离线路径上就永远测不出来。
+    //
+    // 但**最后一个说话者**必须带上 `message_id`：它是本轮最后一条 assistant 消息，
+    // 也就是 `done` 与 `image` 事件共同的锚点。真实后端每条 speaker_switch 都带
+    // DB 真实 id，mock 若缺了它，配图就无处可挂（S16-8 曾因此踩坑）。
     if (index > 0) {
-      push(() => onEvent('speaker_switch', { speaker_id: id, speaker_name: name, is_narration: false }), t);
+      const isLast = index === beats.length - 1;
+      push(
+        () =>
+          onEvent('speaker_switch', {
+            speaker_id: id,
+            speaker_name: name,
+            is_narration: false,
+            ...(isLast ? { message_id: 'demo-speaker-last' } : {}),
+          }),
+        t,
+      );
       t += 60;
     }
     for (const chunk of chunks) {
@@ -186,6 +200,19 @@ export function mockStoryStream(
     t,
   );
   push(() => onEvent('usage', { prompt_tokens: 2140, completion_tokens: 268 }), t + 100);
+  // 配图（S16-8）：与后端一致 —— 落在 `usage` 之后、`actions` 之前，
+  // 且带 `message_id` 锚点（等于本轮最后一条 assistant 消息，与 done 同值）。
+  // 用一张内联 SVG 做占位，离线演示不必依赖真实资产接口。
+  push(
+    () =>
+      onEvent('image', {
+        asset_id: 'demo-scene-asset',
+        job_id: 'demo-job',
+        reason: 'node',
+        message_id: 'demo-speaker-last',
+      }),
+    t + 140,
+  );
   push(
     () =>
       onEvent('actions', {

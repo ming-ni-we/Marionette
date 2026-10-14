@@ -182,7 +182,7 @@ const ROUTES = [
   { path: '/presets/p1f0a1e2-0001-4c01-9b01-000000000001', expect: /日常向/ },
 ];
 
-const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList, probeStoryMultiTurn, probeSuggestionChip } = await import(
+const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList, probeStoryMultiTurn, probeSuggestionChip, probeSceneImage } = await import(
   pathToFileURL(outfile).href
 );
 
@@ -296,6 +296,10 @@ const mt = await probeStoryMultiTurn();
 document.getElementById('root').innerHTML = '';
 const chip = await probeSuggestionChip();
 
+/* ------------- 3.9) 剧情配图（S16-8：配图块 + 灯箱）------------- */
+document.getElementById('root').innerHTML = '';
+const scene = await probeSceneImage();
+
 /* --------------------------------- 4) 报告 -------------------------------- */
 console.error = origErr;
 let failed = 0;
@@ -371,8 +375,21 @@ if (!chip.ok) {
   if (!chip.sentAfterDblClick) console.log('       ✗ 双击没有直发');
 }
 
+/* ---- 3.9) 剧情配图（S16-8）---- */
+console.log(
+  `${scene.ok ? 'PASS' : 'FAIL'}  剧情配图      配图块=${scene.figureCount} 图注="${scene.caption}" src含/assets/=${scene.srcOk} 灯箱打开=${scene.openedDialog} Esc关闭=${scene.closedByEsc}`,
+);
+if (!scene.ok) {
+  if (scene.figureCount < 1) console.log('       ✗ image 事件到达后没有出现配图块');
+  if (!['角色登场', '剧情节点', '手动绘制'].includes(scene.caption))
+    console.log(`       ✗ 图注不是预期文案："${scene.caption}"`);
+  if (!scene.srcOk) console.log('       ✗ 图片 src 未指向 /assets/ 内容端点');
+  if (!scene.openedDialog) console.log('       ✗ 点击配图没有打开灯箱');
+  if (!scene.closedByEsc) console.log('       ✗ 按 Esc 没有关闭灯箱');
+}
+
 const probeFailed =
-  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1) + (mt.ok ? 0 : 1) + (chip.ok ? 0 : 1);
+  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1) + (mt.ok ? 0 : 1) + (chip.ok ? 0 : 1) + (scene.ok ? 0 : 1);
 console.log(
   failed === 0 && errors.length === 0 && probeFailed === 0
     ? '\n[结论] PASS'

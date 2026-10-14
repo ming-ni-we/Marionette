@@ -1115,6 +1115,93 @@ class TestStoryImageEvents:
         assert story.get("image_count", 0) == 0
 
     @pytest.mark.asyncio
+    async def test_image_persists_asset_id_to_message_meta(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """关联持久化（S16-8）：出图后必须把 asset_id 写进消息的 `meta.image_asset_id`。
+
+        这是「刷新页面图片不丢」的唯一依据 —— 不写库，前端回读就找不到图。
+        """
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(asset_id="asset-persist"),
+        )
+
+        events = await _drain(chat, str(row.id))
+        await db.flush()
+
+        payload = _first(events, "image")
+        assert payload is not None
+        mid = payload["message_id"]
+
+        # 库里该消息的 meta 必须已带上 asset_id（回读链路）
+        messages = await chat._sessions.list_messages(row.id)
+        target = next((m for m in messages if str(m.id) == mid), None)
+        assert target is not None, "image 事件携带的 message_id 必须指向真实消息"
+        assert (target.meta or {}).get("image_asset_id") == "asset-persist"
+
+    @pytest.mark.asyncio
+    async def test_image_event_carries_message_id_before_done(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """契约：`image` 事件必须自带 `message_id`，且落在 `done` **之前**。
+
+        原因：image 到达时 done 还没到，前端拿不到「本轮最后一条 assistant」的 id，
+        只能靠事件自带锚点挂载。这条断言守住该锚点，防止未来被误删。
+        """
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(asset_id="asset-anchor"),
+        )
+
+        events = await _drain(chat, str(row.id))
+        names = _names(events)
+        payload = _first(events, "image")
+
+        assert payload is not None
+        assert payload.get("message_id"), "image 事件必须携带 message_id 锚点"
+        assert names.index("image") < names.index("done")
+
+        # 锚点必须等于 done 事件报的 message_id（流式与回读同一锚点）
+        done_payload = _first(events, "done")
+        assert done_payload is not None
+        assert payload["message_id"] == done_payload["message_id"]
+
+    @pytest.mark.asyncio
+    async def test_image_link_is_idempotent(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """幂等守门：消息已有图时不得被新图覆盖（一张图落到消息上就稳定）。"""
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(asset_id="asset-first"),
+        )
+
+        await _drain(chat, str(row.id))
+        await db.flush()
+
+        # 手动模拟「重入」：拿同一条消息再关联一张不同的图
+        messages = await chat._sessions.list_messages(row.id)
+        target = next(m for m in messages if (m.meta or {}).get("image_asset_id"))
+        await chat._link_image_to_message(target, "asset-second")
+        await db.flush()
+
+        refreshed = await chat._sessions.get_message(row.id, str(target.id))
+        assert (refreshed.meta or {}).get("image_asset_id") == "asset-first"
+
+    @pytest.mark.asyncio
     async def test_empty_prompt_skips_generation(
         self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
     ) -> None:

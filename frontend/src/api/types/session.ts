@@ -279,6 +279,16 @@ export interface SseUsageEvent {
 export interface SseImageEvent {
   asset_id: string;
   job_id: string;
+  /** 出图原因（S16-8）：`cast` 角色登场 / `node` 剧情节点 / `manual` 玩家显式请求。 */
+  reason?: 'cast' | 'node' | 'manual';
+  /**
+   * 挂载锚点（S16-8）：本图所属的那条 assistant 消息 id。
+   *
+   * `image` 事件在 `done` **之前**到达，此刻前端还拿不到「本轮最后一条 assistant」
+   * 的 id，只能靠事件自带锚点定位。它与回读时 `meta.image_asset_id` 所在的消息
+   * 是同一条 —— 流式与回读共用同一锚点。
+   */
+  message_id?: string;
 }
 
 export interface SseDoneEvent {

@@ -42,6 +42,7 @@ from app.services.context_assembler import ContextAssembler
 from app.services.director import DirectorSvc
 from app.services.image_hook import ImageHook
 from app.services.image_trigger import (
+    REASON_MANUAL,
     ImageTriggerSvc,
     aspect_to_size,
     next_story_state,
@@ -841,7 +842,15 @@ class ChatSvc:
             logger.warning("image hook failed: %s", type(exc).__name__)
             return
         if job.asset_id is not None:
-            yield EVT_IMAGE, {"asset_id": str(job.asset_id), "job_id": str(job.id)}
+            # 关联持久化（S16-8）：挂到本轮最后一条 assistant 消息的 meta，
+            # 让刷新回读时图片还在原位。写库**必须先于 yield**。
+            await self._link_image_to_message(assistant_row, job.asset_id)
+            yield EVT_IMAGE, {
+                "asset_id": str(job.asset_id),
+                "job_id": str(job.id),
+                "reason": REASON_MANUAL,
+                "message_id": str(assistant_row.id),
+            }
 
     async def _story_image_events(
         self,
@@ -923,6 +932,10 @@ class ChatSvc:
         if job.asset_id is None:
             return
 
+        # 关联持久化（S16-8）：写库必须先于 yield —— 前端一收到 image 事件，
+        # 库里就已一致，刷新回读才拿得到这张图。
+        await self._link_image_to_message(assistant_row, job.asset_id)
+
         # 出图成功后才记账：配额 / 间隔 / 去重（失败不占额度）
         self._story_state.set_story(
             session_row,
@@ -943,7 +956,30 @@ class ChatSvc:
             "asset_id": str(job.asset_id),
             "job_id": str(job.id),
             "reason": trigger.reason,
+            "message_id": str(assistant_row.id),
         }
+
+    async def _link_image_to_message(self, assistant_row: Any, asset_id: Any) -> None:
+        """把配图挂到消息的 `meta.image_asset_id`（S16-8 关联持久化）。
+
+        为什么是「消息」而不是「轮次」：渲染单位是消息，可见事实就该贴在消息上。
+        图片生成在本轮全部 assistant 消息落库之后，`assistant_row` 即本轮最后一条，
+        正好与 `EVT_DONE.message_id` 同一条 —— 流式与回读共用一个锚点。
+
+        **幂等守门**：`update_message` 的 meta 是浅合并，若该消息已有图则跳过，
+        避免重生成 / 重入时用新图覆盖旧图（一张图一旦落到消息上就稳定）。
+
+        **失败静默**：关联写失败不影响已经生成的图，只是刷新后回读不到；
+        对话主流程绝不能因此中断。
+        """
+        try:
+            if (getattr(assistant_row, "meta", None) or {}).get("image_asset_id"):
+                return
+            await self._sessions.update_message(
+                assistant_row, meta={"image_asset_id": str(asset_id)}
+            )
+        except Exception as exc:  # noqa: BLE001 —— 关联失败不拖垮对话
+            logger.warning("image link persist failed: %s", type(exc).__name__)
 
     async def _finalize_incomplete(
         self,

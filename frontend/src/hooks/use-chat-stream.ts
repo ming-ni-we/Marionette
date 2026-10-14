@@ -39,6 +39,14 @@ export interface ActiveSpeaker {
   messageId: string;
 }
 
+/** 剧情配图（S16-8）：流式期间由 `image` 事件累积，回读时走 `message.meta`。 */
+export interface SceneImage {
+  assetId: string;
+  reason: 'cast' | 'node' | 'manual';
+  /** 挂载锚点：这条图属于哪条 assistant 消息 */
+  messageId: string;
+}
+
 export interface ChatStream {
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
@@ -62,6 +70,13 @@ export interface ChatStream {
   nodes: SseEventMap['node'][];
   /** 最近一轮的行动建议（`actions` 事件） */
   suggestions: ActionSuggestion[];
+  /**
+   * 本轮已生成的剧情配图（`image` 事件，S16-8）。
+   *
+   * 与 `message.meta.image_asset_id`（回读）合并后渲染 —— 两条路径共用一个
+   * `messageId` 锚点，所以无论「刚生成」还是「刷新后回读」，图都落在同一条消息下。
+   */
+  sceneImages: SceneImage[];
   /** 最近一次导演裁决原文（供调试面板展示「导演在想什么」） */
   lastDecision: SseDirectorEvent | null;
   setSuggestions: React.Dispatch<React.SetStateAction<ActionSuggestion[]>>;
@@ -103,6 +118,7 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
   const [activeSpeaker, setActiveSpeaker] = useState<ActiveSpeaker | null>(null);
   const [nodes, setNodes] = useState<SseEventMap['node'][]>([]);
   const [suggestions, setSuggestions] = useState<ActionSuggestion[]>([]);
+  const [sceneImages, setSceneImages] = useState<SceneImage[]>([]);
   const [lastDecision, setLastDecision] = useState<SseDirectorEvent | null>(null);
   const handleRef = useRef<{ abort: () => void } | null>(null);
 
@@ -242,9 +258,10 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
           const d = raw as SseEventMap['director'];
           setLastDecision(d);
           setSpeakers((d.speakers ?? []) as CastMember[]);
-          // 导演是每轮第一件事：清掉上一轮残留，避免新旧建议/节点串轮
+          // 导演是每轮第一件事：清掉上一轮残留，避免新旧建议/节点/配图串轮
           setNodes([]);
           setSuggestions([]);
+          setSceneImages([]);
           setActiveSpeaker(null);
           break;
         }
@@ -306,9 +323,19 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
             completion_tokens: Number(data.completion_tokens ?? 0),
           });
           break;
-        case 'image':
-          toast.show('场景图已生成并归档', '可以在「素材」里按角色找到它。');
+        case 'image': {
+          // 剧情配图（S16-8）：记下 asset_id 与挂载锚点，交给渲染层插进对话流。
+          // 同 messageId 覆盖而非追加 —— 单轮最多一图，重复事件不该画出两张。
+          const im = raw as SseEventMap['image'];
+          const scene: SceneImage = {
+            assetId: im.asset_id,
+            reason: im.reason ?? 'node',
+            messageId: im.message_id ?? '',
+          };
+          setSceneImages((arr) => [...arr.filter((x) => x.messageId !== scene.messageId), scene]);
+          toast.show('场景图已生成并归档', '已加入本幕。');
           break;
+        }
         case 'done': {
           const status: Message['status'] = String(data.status) === 'complete' ? 'complete' : 'incomplete';
           // 剧情模式：本轮可能有多条气泡，把仍是 streaming 的全部收口
@@ -466,6 +493,7 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
     activeSpeaker,
     nodes,
     suggestions,
+    sceneImages,
     lastDecision,
     setSuggestions,
     setActiveSpeaker,

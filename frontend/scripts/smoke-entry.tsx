@@ -451,3 +451,103 @@ export async function probeSuggestionChip(): Promise<{
     chipCount: mainChips.length,
   };
 }
+
+/**
+ * 剧情配图探针（S16 步骤 8）。
+ *
+ * 断言四件事，覆盖「图会不会出现」「图注对不对」「点击能不能放大」「放大后能不能关」：
+ *   1. `image` 事件到达后，对话流里出现配图块（`figure[data-scene-image]`）
+ *   2. 图注是中文语义文案（角色登场 / 剧情节点 / 手动绘制），不是裸 reason 值
+ *   3. 图片 src 指向资产内容端点（`/assets/<id>/content`）
+ *   4. 点击图片弹出灯箱（`role="dialog"`），按 Esc 能关掉
+ *
+ * 注意 jsdom **不会真正加载图片**，所以 `onError` 不会触发、占位分支不会走到 ——
+ * 这是刻意的：本探针只验证「接线对不对」，占位样式靠人工/视觉验收。
+ */
+export async function probeSceneImage(): Promise<{
+  ok: boolean;
+  figureCount: number;
+  caption: string;
+  srcOk: boolean;
+  openedDialog: boolean;
+  closedByEsc: boolean;
+}> {
+  const container = document.getElementById('root');
+  if (!container) throw new Error('缺少 #root');
+
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 0 }, mutations: { retry: false } },
+  });
+  const root = createRoot(container);
+  root.render(
+    <StrictMode>
+      <QueryClientProvider client={qc}>
+        <TooltipProvider delayDuration={0}>
+          <MemoryRouter initialEntries={['/stories/s1f0a1e2-0002-4d02-9c02-000000000002']}>
+            <App />
+          </MemoryRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+
+  await new Promise((r) => setTimeout(r, 400));
+
+  const textarea = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="输入你的行动"]',
+  );
+  const sendBtn = container.querySelector<HTMLButtonElement>('button[aria-label="发送你的行动"]');
+  if (!textarea) throw new Error('剧情页没有渲染出行动输入框');
+
+  // 跑一轮：mock 会在 usage 之后、actions 之前下发 image 事件
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    'value',
+  )?.set;
+  setter?.call(textarea, '我盯着那封信看。');
+  textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 60));
+  sendBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 4200));
+
+  const figures = Array.from(container.querySelectorAll<HTMLElement>('figure[data-scene-image]'));
+  const caption = figures[0]?.querySelector('figcaption')?.textContent?.trim() ?? '';
+  const img = figures[0]?.querySelector('img');
+  const srcOk = Boolean(img?.getAttribute('src')?.includes('/assets/'));
+
+  // ---- 点击放大：figure 内的按钮应打开灯箱 ----
+  const zoomBtn = figures[0]?.querySelector<HTMLButtonElement>('button[aria-label^="放大查看"]');
+  // Radix 用 pointerdown 触发（不是 click），jsdom 下必须按真实交互序列派发，
+  // 否则「点得动」这件事没被真正验证。
+  zoomBtn?.dispatchEvent(
+    new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+  );
+  zoomBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 260));
+  // Dialog 走 Portal 渲染到 document.body，不能在 container 里找
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  const openedDialog = Boolean(dialog);
+
+  // ---- Esc 关闭（Radix Dialog 原生支持）----
+  const esc = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+  (dialog ?? document).dispatchEvent(esc);
+  await new Promise((r) => setTimeout(r, 260));
+  const closedByEsc = !document.querySelector('[role="dialog"]');
+
+  const validCaptions = new Set(['角色登场', '剧情节点', '手动绘制']);
+
+  return {
+    ok:
+      figures.length >= 1 &&
+      validCaptions.has(caption) &&
+      srcOk &&
+      openedDialog &&
+      closedByEsc,
+    figureCount: figures.length,
+    caption,
+    srcOk,
+    openedDialog,
+    closedByEsc,
+  };
+}
