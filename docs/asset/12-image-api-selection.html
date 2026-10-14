@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Marionette · 文生图 API 选型评估</title>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#161a21; --panel2:#1c212a; --line:#2a313c;
+    --fg:#e6e9ef; --fg2:#9aa4b2; --fg3:#6b7686;
+    --accent:#5b9dff; --gold:#f0b429; --green:#3fb950; --red:#f85149;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:15px/1.7 -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+    padding:32px 20px 72px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:26px;margin:0 0 6px;letter-spacing:-.3px}
+  .sub{color:var(--fg2);font-size:13.5px;margin-bottom:8px}
+  .meta{color:var(--fg3);font-size:12.5px;margin-bottom:28px}
+  h2{font-size:19px;margin:44px 0 14px;padding-left:11px;border-left:3px solid var(--accent)}
+  h3{font-size:15.5px;margin:26px 0 10px;color:var(--fg)}
+  p{margin:10px 0}
+  .lead{background:linear-gradient(135deg,#17202e,#161a21);border:1px solid var(--line);
+    border-radius:12px;padding:18px 20px;margin:18px 0}
+  .lead .t{color:var(--gold);font-weight:600;margin-bottom:6px}
+  table{width:100%;border-collapse:collapse;margin:16px 0;font-size:13.5px}
+  th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--line);vertical-align:top}
+  th{background:var(--panel2);color:var(--fg2);font-weight:600;font-size:12.5px;
+    text-transform:uppercase;letter-spacing:.4px;white-space:nowrap}
+  tr:hover td{background:#191e26}
+  .num{font-variant-numeric:tabular-nums;white-space:nowrap}
+  code{background:#20252e;padding:2px 6px;border-radius:5px;font-size:12.5px;
+    font-family:ui-monospace,Menlo,Consolas,monospace;color:#9fd0ff}
+  pre{background:#12161c;border:1px solid var(--line);border-radius:10px;
+    padding:14px 16px;overflow-x:auto;font-size:12.5px;line-height:1.6}
+  pre code{background:none;padding:0;color:#c8d4e3}
+  .tag{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11.5px;
+    font-weight:600;white-space:nowrap}
+  .t-rec{background:rgba(63,185,80,.15);color:var(--green);border:1px solid rgba(63,185,80,.3)}
+  .t-ok{background:rgba(91,157,255,.13);color:var(--accent);border:1px solid rgba(91,157,255,.3)}
+  .t-warn{background:rgba(240,180,41,.13);color:var(--gold);border:1px solid rgba(240,180,41,.3)}
+  .t-no{background:rgba(248,81,73,.13);color:var(--red);border:1px solid rgba(248,81,73,.3)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    padding:18px 20px;margin:14px 0}
+  .card.rec{border-color:rgba(63,185,80,.45);background:linear-gradient(135deg,#141f19,#161a21)}
+  .card .h{display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+  .card .h b{font-size:16px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:14px 0}
+  .kv{background:var(--panel2);border-radius:9px;padding:12px 14px}
+  .kv .k{color:var(--fg3);font-size:11.5px;text-transform:uppercase;letter-spacing:.5px}
+  .kv .v{margin-top:4px;font-size:14px}
+  ul{margin:8px 0;padding-left:20px}
+  li{margin:5px 0}
+  .good{color:var(--green)} .bad{color:var(--red)} .dim{color:var(--fg3)}
+  .note{border-left:3px solid var(--gold);background:rgba(240,180,41,.05);
+    padding:12px 16px;border-radius:0 8px 8px 0;margin:14px 0;font-size:13.5px}
+  .foot{margin-top:52px;padding-top:18px;border-top:1px solid var(--line);
+    color:var(--fg3);font-size:12.5px}
+  .scroll{overflow-x:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>文生图 API 选型评估</h1>
+<div class="sub">目标：在剧情对话中「不时插入配图」——不是每轮都出图，而是关键节点（场景转折、新角色登场、重要道具）自动配一张。</div>
+<div class="meta">评估日期 2026-10-14 · 项目：提线 Marionette · 已核实项目现有图片链路代码</div>
+
+<div class="lead">
+  <div class="t">先看结论</div>
+  <p style="margin:0">项目现有 <code>CloudImageProvider</code> 走的是「<b>兼容 OpenAI 的 /images/generations</b>」协议（<code>adapters/image.py</code>）。这意味着
+  <b>选平台 = 选一个 base_url + model 字符串，不用改一行代码</b>。</p>
+  <p style="margin:10px 0 0">在这个前提下，<b>火山引擎方舟（豆包 Seedream）</b> 是国内场景的最优解：接口路径 <code>/api/v3/images/generations</code> 与现有适配器完全对齐，国内直连、免备案、单张约 ¥0.22–0.30。</p>
+</div>
+
+<h2>一、你的项目有哪些硬约束</h2>
+
+<p>选型不能只看模型分数，得先看这个项目的实际情况。我从代码里核实出四条硬约束：</p>
+
+<table>
+<thead><tr><th>约束</th><th>代码证据</th><th>对选型的影响</th></tr></thead>
+<tbody>
+<tr>
+  <td><b>必须兼容 OpenAI images 协议</b></td>
+  <td><code>adapters/image.py:52-61</code> 组装 <code>{model, prompt, n, size, response_format}</code>，POST 到 <code>{base_url}/images/generations</code></td>
+  <td class="bad">协议不兼容 = 必须新写一个 Adapter</td>
+</tr>
+<tr>
+  <td><b>要能拿 base64（或 URL）</b></td>
+  <td><code>image.py:92-97</code> 优先读 <code>b64_json</code>，回退读 <code>url</code> 再下载</td>
+  <td>两种都支持，兼容性好</td>
+</tr>
+<tr>
+  <td><b>服务器在国内、无域名</b></td>
+  <td><code>101.33.117.223</code>，走 HTTP 明文，<b>无 ICP 备案</b></td>
+  <td class="bad">境外 API（OpenAI / Google）<b>网络不稳 + 合规风险</b></td>
+</tr>
+<tr>
+  <td><b>出图不阻塞对话主流</b></td>
+  <td><code>image_hook.py</code> 注释：「不阻塞对话主流（失败仅置 failed）」</td>
+  <td>可以接受 10–40 秒出图，异步即可</td>
+</tr>
+</tbody>
+</table>
+
+<div class="note">
+<b>关键洞察</b>：因为架构是「接口隔离 + 厂商无关」（<code>image_hook.py</code> 顶部明确写「绝不 import 任何厂商 SDK」），
+<b>选型不是不可逆的</b>。换平台 = 改 <code>.env</code> 里的 <code>IMAGE_BASE_URL</code> / <code>IMAGE_MODEL</code>。
+所以<b>先选一个能立刻跑的，别为「最优」纠结太久</b>。
+</div>
+
+<h2>二、主流平台横向对比</h2>
+
+<p>价格统一折算成<b>「一张 1024×1024 的图多少钱」</b>——因为各家计费单位完全不同（按 token / 按像素 / 按张）。</p>
+
+<div class="scroll">
+<table>
+<thead><tr>
+  <th>平台 / 模型</th><th>单张价</th><th>OpenAI 兼容</th><th>国内直连</th><th>中文提示词</th><th>适用性</th>
+</tr></thead>
+<tbody>
+<tr style="background:rgba(63,185,80,.05)">
+  <td><b>火山引擎 · Seedream 5.0 Lite</b><br><span class="dim">doubao-seedream-5-0-lite</span></td>
+  <td class="num">¥0.22</td>
+  <td class="good">✅ 原生</td>
+  <td class="good">✅</td>
+  <td class="good">✅ 极强</td>
+  <td><span class="tag t-rec">首选</span></td>
+</tr>
+<tr style="background:rgba(63,185,80,.05)">
+  <td><b>火山引擎 · Seedream 5.0 Pro</b><br><span class="dim">doubao-seedream-5-0-pro</span></td>
+  <td class="num">¥0.30</td>
+  <td class="good">✅ 原生</td>
+  <td class="good">✅</td>
+  <td class="good">✅ 极强</td>
+  <td><span class="tag t-rec">画质优先</span></td>
+</tr>
+<tr>
+  <td><b>阿里云百炼 · 通义万相</b><br><span class="dim">wan2.7-image-pro</span></td>
+  <td class="num">≈¥0.25</td>
+  <td class="good">✅ 兼容模式</td>
+  <td class="good">✅</td>
+  <td class="good">✅ 强</td>
+  <td><span class="tag t-ok">次选</span></td>
+</tr>
+<tr>
+  <td><b>阿里云百炼 · 千问图像</b><br><span class="dim">qwen-image-3.0</span></td>
+  <td class="num">≈¥0.22</td>
+  <td class="good">✅ 兼容模式</td>
+  <td class="good">✅</td>
+  <td class="good">✅ 强</td>
+  <td><span class="tag t-ok">次选</span></td>
+</tr>
+<tr>
+  <td><b>Google · Nano Banana 2</b><br><span class="dim">gemini-3.1-flash-image</span></td>
+  <td class="num">$0.067<br><span class="dim">≈¥0.48</span></td>
+  <td class="warn">⚠️ 非标准 images 协议</td>
+  <td class="bad">❌ 需代理</td>
+  <td class="good">✅ 强</td>
+  <td><span class="tag t-warn">网络受限</span></td>
+</tr>
+<tr>
+  <td><b>Google · Nano Banana Pro</b><br><span class="dim">gemini-3-pro-image</span></td>
+  <td class="num">$0.134<br><span class="dim">≈¥0.97</span></td>
+  <td class="warn">⚠️ 非标准</td>
+  <td class="bad">❌ 需代理</td>
+  <td class="good">✅ 极强（图内文字）</td>
+  <td><span class="tag t-warn">网络受限</span></td>
+</tr>
+<tr>
+  <td><b>OpenAI · GPT Image 2.5</b><br><span class="dim">gpt-image-2.5-flare</span></td>
+  <td class="num">$0.005–0.21<br><span class="dim">质量档差 42×</span></td>
+  <td class="good">✅ 原生</td>
+  <td class="bad">❌ 需代理</td>
+  <td class="warn">⚠️ 一般</td>
+  <td><span class="tag t-no">合规风险</span></td>
+</tr>
+<tr>
+  <td><b>Black Forest Labs · FLUX.2</b><br><span class="dim">flux-2-pro</span></td>
+  <td class="num">$0.03<br><span class="dim">≈¥0.22</span></td>
+  <td class="good">✅ 有兼容层</td>
+  <td class="warn">⚠️ 视渠道</td>
+  <td class="warn">⚠️ 一般</td>
+  <td><span class="tag t-ok">可自托管</span></td>
+</tr>
+<tr>
+  <td><b>Midjourney V8.2</b></td>
+  <td class="num">$10–120/月</td>
+  <td class="bad">❌ 无公开 API</td>
+  <td class="bad">❌</td>
+  <td class="warn">⚠️</td>
+  <td><span class="tag t-no">不可用</span></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<p class="dim" style="font-size:12.5px">价格来源：各厂商官方定价页 / 第三方核实汇总（2026-08 至 10 月），已按 1 USD ≈ 7.2 CNY 折算。实际以控制台账单为准。</p>
+
+<h2>三、推荐方案</h2>
+
+<div class="card rec">
+  <div class="h"><b>火山引擎方舟 · 豆包 Seedream 5.0</b><span class="tag t-rec">推荐</span></div>
+  <p style="margin-top:0">三个理由，按重要性排序：</p>
+  <ul>
+    <li><b>零改代码</b> —— 接口是 <code>POST /api/v3/images/generations</code>，与现有适配器拼出的 URL 结构完全一致</li>
+    <li><b>国内直连 + 免备案</b> —— 服务器在国内，不需要代理，也没有境外数据合规问题</li>
+    <li><b>中文提示词友好 + 一致性</b> —— Seedream 系列对中文理解强，且支持最多 10–14 张参考图，<b>这对「同一角色跨多张图保持长相一致」是刚需</b></li>
+  </ul>
+</div>
+
+<div class="grid">
+  <div class="kv"><div class="k">base_url</div><div class="v"><code>https://ark.cn-beijing.volces.com/api/v3</code></div></div>
+  <div class="kv"><div class="k">model（省）</div><div class="v"><code>doubao-seedream-5-0-lite-260128</code></div></div>
+  <div class="kv"><div class="k">model（好）</div><div class="v"><code>doubao-seedream-5-0-pro-260628</code></div></div>
+  <div class="kv"><div class="k">单张成本</div><div class="v">¥0.22 / ¥0.30</div></div>
+  <div class="kv"><div class="k">出图耗时</div><div class="v">约 10–15 秒（1K–2K）</div></div>
+  <div class="kv"><div class="k">接入改动</div><div class="v good">仅 .env 两个变量</div></div>
+</div>
+
+<h3>现有适配器已经能直接用</h3>
+<pre><code># adapters/image.py 第 61 行实际拼出的 URL：
+POST {base_url}/images/generations
+# 填 https://ark.cn-beijing.volces.com/api/v3 后 →
+POST https://ark.cn-beijing.volces.com/api/v3/images/generations  ✅ 正确
+
+# 请求体（image.py:52-58）
+{"model": "doubao-seedream-5-0-lite-260128",
+ "prompt": "...", "n": 1, "size": "1024x1024", "response_format": "b64_json"}</code></pre>
+
+<div class="note">
+<b>需要注意的两处细节</b>（不改代码，但要测试确认）：
+<ul style="margin:6px 0 0">
+<li>火山的 <code>size</code> 接受 <code>"2K"</code> 或 <code>"2048x2048"</code>，<b>不是所有档位都接受 <code>1024x1024</code></b> —— 可能要改默认值或传 <code>2K</code></li>
+<li><code>response_format</code> 若不被识别，删掉该字段即可（默认回 URL，适配器 <code>image.py:94-97</code> 自己会去下载）</li>
+</ul>
+</div>
+
+<h2>四、备选与排除</h2>
+
+<h3><span class="tag t-ok">次选</span> 阿里云百炼（通义万相 / 千问图像）</h3>
+<p>同样提供 OpenAI 兼容模式（<code>https://dashscope.aliyuncs.com/compatible-mode/v1</code>），
+价格与火山接近。<b>如果你的 DeepSeek key 已经在阿里云体系里，或者想统一账单，这个是很好的选择。</b>
+万相和千问的图像能力都在第一梯队。</p>
+
+<h3><span class="tag t-warn">受限</span> Google Nano Banana 2</h3>
+<p><b>模型本身很强</b> —— 图内文字渲染、角色一致性（可保持 5 个角色）都是顶级的，价格也便宜。
+但两个问题让它不适合当前阶段：</p>
+<ul>
+<li><b>协议不标准</b> —— 走的是 Gemini 的 <code>generateContent</code>，不是 <code>/images/generations</code>，<b>必须新写一个 Adapter</b></li>
+<li><b>网络</b> —— 服务器在国内无域名，直连 Google 不稳，且涉及数据出境合规</li>
+</ul>
+<p class="dim">建议：<b>等有域名 + HTTPS 之后，再考虑加一个 Gemini Adapter 作为「高质量档」</b>。架构支持多 Provider 切换，值得保留这个可能性。</p>
+
+<h3><span class="tag t-no">当前不建议</span> OpenAI GPT Image 2.5</h3>
+<p>质量确实第一梯队（榜单第一），但：<b>国内合规风险</b>（境外 API + 无备案域名）、需要代理、
+且<b>价格档位极其混乱</b>（同一模型 $0.005 到 $0.211，42 倍差距，容易预算失控）。</p>
+
+<h3><span class="tag t-no">不可用</span> Midjourney</h3>
+<p><b>没有公开 API</b>。只有第三方逆向接口，不稳定且违反 ToS。排除。</p>
+
+<h2>五、「不时插入图片」的落地建议</h2>
+
+<p>重点：<b>不是每轮都出图</b>。每轮出图既贵（一轮 ¥0.22，20 轮 ¥4.4）又打断叙事节奏。建议按「值得画」的时机触发：</p>
+
+<div class="scroll">
+<table>
+<thead><tr><th>触发时机</th><th>数据来源</th><th>优先级</th></tr></thead>
+<tbody>
+<tr><td><b>节点触发时</b>（node_triggered）</td><td>导演的 <code>node</code> 事件已有</td><td><span class="tag t-rec">最高</span></td></tr>
+<tr><td><b>新角色登场</b></td><td>cast 变化 / 首个 speaker 变新</td><td><span class="tag t-rec">高</span></td></tr>
+<tr><td><b>场景切换</b></td><td><code>scene</code> 的 location 变化</td><td><span class="tag t-ok">中</span></td></tr>
+<tr><td>玩家手动点「画一张」</td><td>前端按钮</td><td><span class="tag t-ok">中</span></td></tr>
+<tr><td>每轮都出</td><td>—</td><td><span class="tag t-no">不建议</span></td></tr>
+</tbody>
+</table>
+</div>
+
+<p>好在<b>这些数据导演已经在产出</b>了 —— 你上一步做的 S15-1（建议持久化）思路完全一样：
+<b>把已经算出来的信号，用来触发一个额外动作</b>。工程量不大。</p>
+
+<div class="note">
+<b>成本估算</b>：按「每 5 轮配 1 张」的节奏，20 轮的一局 = 4 张 ≈ <b>¥0.9/局</b>。<br>
+对比：目前一局 20 轮的 LLM 成本（导演 1 次 + 各角色 1 次/轮）远高于此。出图<b>不是成本瓶颈</b>。
+</div>
+
+<h2>六、建议的实施顺序</h2>
+
+<table>
+<thead><tr><th>步骤</th><th>内容</th><th>工作量</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>开通火山方舟账号，拿 API Key</td><td class="dim">你来做</td></tr>
+<tr><td>2</td><td>配置 <code>IMAGE_BASE_URL</code> / <code>IMAGE_MODEL</code> / <code>IMAGE_API_KEY</code></td><td>5 分钟</td></tr>
+<tr><td>3</td><td>用现有「手动出图」入口跑通一张，验证协议兼容（重点验 <code>size</code> 格式）</td><td>半小时</td></tr>
+<tr><td>4</td><td>加「节点触发自动配图」钩子</td><td>半天</td></tr>
+<tr><td>5</td><td>角色一致性：用参考图固定角色长相</td><td>1 天</td></tr>
+</tbody>
+</table>
+
+<div class="foot">
+<p><b>诚实标注</b>：本评估的模型能力与价格来自 2026 年 8–10 月的公开资料，文生图领域迭代极快（搜索结果显示半年内头部模型已换代两轮）。
+<b>具体价格与可用性请以开通时的控制台账单为准。</b>项目代码侧的结论（协议兼容、接口隔离）是直接读源码核实的，可放心依赖。</p>
+</div>
+
+</div>
+</body>
+</html>

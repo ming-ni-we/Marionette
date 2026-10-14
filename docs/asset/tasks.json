@@ -432,6 +432,74 @@
         "frontend/src/hooks/use-chat-stream.ts",
         "frontend/src/pages/story-runtime.tsx"
       ]
+    },
+    {
+      "id": "S16",
+      "title": "对话配图（文生图接入）",
+      "card": "09-project-plan.md#46--s16--对话配图文生图接入2026-10-14-新增",
+      "priority": 2,
+      "parallel_safe": true,
+      "blocked_by": [],
+      "summary": "在剧情对话中「不时插入图片」——关键节点自动配图，非每轮出图。项目已有完整出图链路（ImageHook + CloudImageProvider + image_jobs + SSE image 事件），架构厂商无关（绝不 import 厂商 SDK），换平台仅需改 .env 两个变量。",
+      "choice": {
+        "primary": "火山引擎方舟 · 豆包 Seedream 5.0",
+        "reason": [
+          "接口 POST /api/v3/images/generations 与现有适配器完全对齐（零改代码）",
+          "国内直连、免备案（服务器无域名）",
+          "中文提示词强 + 支持 10~14 张参考图 → 角色跨图一致性有解"
+        ],
+        "config": {
+          "IMAGE_BASE_URL": "https://ark.cn-beijing.volces.com/api/v3",
+          "IMAGE_MODEL": "doubao-seedream-5-0-lite-260128 (¥0.22/张) 或 doubao-seedream-5-0-pro-260628 (¥0.30/张)",
+          "IMAGE_API_KEY": "<ARK_API_KEY>"
+        },
+        "alternatives": {
+          "阿里云百炼": "通义万相/千问图像，OpenAI 兼容模式，≈¥0.25/张，次选",
+          "Google Nano Banana 2": "质量强但协议不标准（需新写 Adapter）+ 网络受限，有域名后再考虑",
+          "OpenAI GPT Image 2.5": "国内合规风险 + 价格档混乱，排除",
+          "Midjourney": "无公开 API，不可用"
+        }
+      },
+      "trigger_design": {
+        "原则": "不是每轮出图（¥0.22 × 20 轮 = ¥4.4 且打断节奏），按「值得画」触发",
+        "时机": [
+          "节点触发时（node_triggered）—— 导演 node 事件已有 —— 最高",
+          "新角色登场（cast 变化 / 首个 speaker 变新）—— 高",
+          "场景切换（scene.location 变化）—— 中",
+          "玩家手动点「画一张」—— 中"
+        ],
+        "cost": "按每 5 轮配 1 张，20 轮一局 = 4 张 ≈ ¥0.9/局（远低于 LLM 成本，非瓶颈）",
+        "同源思路": "与 S15-1 一致：把导演已经算出来的信号，用来触发一个额外动作"
+      },
+      "existing_assets": {
+        "ImageHook": "services/image_hook.py（319 行，已实现，任务编排 + 自动归档）",
+        "CloudImageProvider": "adapters/image.py:21-105（走 OpenAI images 协议）",
+        "config": "core/config.py:68-71（image_base_url / image_api_key / image_model）",
+        "sse_event": "chat.py 已接 image 事件",
+        "tables": "image_jobs 表 + assets 归档（迁移已就位）"
+      },
+      "gotchas": [
+        "火山的 size 接受 2K/2048x2048，部分档位不接受 1024x1024，可能需调默认值",
+        "response_format 若被拒，删掉即可（默认回 URL，image.py:94-97 会自动下载）"
+      ],
+      "steps": [
+        "开通火山方舟账号拿 API Key（用户）",
+        "配置 3 个 IMAGE_* 环境变量（5 分钟）",
+        "用现有手动出图入口验证协议兼容（半小时）",
+        "加节点触发自动配图钩子（半天）",
+        "角色一致性：用参考图固定角色长相（1 天）"
+      ],
+      "acceptance": [
+        "手动出图能拿到图并归档（asset_id 非空）",
+        "节点触发时自动出图，SSE 有 image 事件",
+        "出图失败不阻塞对话主流",
+        "同一角色跨 3 张图长相一致"
+      ],
+      "owns_files": [
+        "backend/app/services/image_hook.py",
+        "backend/app/adapters/image.py",
+        "backend/app/services/chat.py"
+      ]
     }
   ],
   "shared_conflict_hotspots": [
@@ -552,6 +620,13 @@
         "/actions 端点：原估偏低 —— 该端点每次实时重跑 LLM，非读缓存",
         "导演 prompt 改造：原估偏低 —— instruction 对导演无效，必须改 _DIRECTOR_SYSTEM"
       ]
+    },
+    "s16_image_generation": {
+      "added_at": "2026-10-14",
+      "card": "09-project-plan.md#46--s16--对话配图文生图接入2026-10-14-新增",
+      "report": "/workspace/文生图API选型评估.html",
+      "verified_against_code": true,
+      "key_finding": "已有出图链路完整且厂商无关，换平台仅需改 .env（零改代码）"
     }
   }
 }
