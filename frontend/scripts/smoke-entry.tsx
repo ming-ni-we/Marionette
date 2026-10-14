@@ -339,3 +339,115 @@ export async function probeStoryMultiTurn(): Promise<{
     firstTurnReplyGrew,
   };
 }
+
+/**
+ * S15-2 探针：建议芯片的**单击预填 / 直发**两种交互。
+ *
+ * 为什么必须用真实 DOM 驱动：这里守的是「芯片被点之后**没有**立刻发出去」——
+ * 一个纯逻辑层的断言看不出来（`onSend` 有没有被调用，取决于事件接线）。
+ *
+ * 三种交互分别断言：
+ *   1. 单击主体 → 输入框被预填，且**没有**产生新一轮（消息数不变、state 仍 idle）
+ *   2. 点 ➤ 直发 → 立即发出（消息数增加）
+ *   3. 双击主体 → 也走直发
+ */
+export async function probeSuggestionChip(): Promise<{
+  ok: boolean;
+  prefilled: string;
+  sentAfterPick: boolean;
+  sentAfterZap: boolean;
+  sentAfterDblClick: boolean;
+  chipCount: number;
+}> {
+  const container = document.getElementById('root');
+  if (!container) throw new Error('缺少 #root');
+
+  const qc = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: 0 }, mutations: { retry: false } },
+  });
+  const root = createRoot(container);
+  root.render(
+    <StrictMode>
+      <QueryClientProvider client={qc}>
+        <TooltipProvider delayDuration={0}>
+          <MemoryRouter initialEntries={['/stories/s1f0a1e2-0002-4d02-9c02-000000000002']}>
+            <App />
+          </MemoryRouter>
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+
+  await new Promise((r) => setTimeout(r, 400));
+
+  const textarea = container.querySelector<HTMLTextAreaElement>(
+    'textarea[aria-label="输入你的行动"]',
+  );
+  if (!textarea) throw new Error('剧情页没有渲染出行动输入框');
+  const sendBtn = container.querySelector<HTMLButtonElement>('button[aria-label="发送你的行动"]');
+
+  // 先跑一轮，让建议芯片出现（建议由 mock 在 done 前下发）
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    'value',
+  )?.set;
+  setter?.call(textarea, '我先不出声，听着。');
+  textarea.dispatchEvent(new window.Event('input', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 60));
+  sendBtn?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 3600));
+
+  const group = container.querySelector('[aria-label="行动建议"]');
+  const chips = group ? Array.from(group.querySelectorAll('button')) : [];
+  // 每张芯片 = 主体按钮 + ➤ 直发按钮 → 主体数 = 总数 / 2
+  const mainChips = chips.filter((b) => !b.getAttribute('aria-label')?.startsWith('直接发送'));
+
+  const userMsgCount = () =>
+    container.querySelectorAll('article[aria-label="你的消息"]').length;
+  const beforePick = userMsgCount();
+
+  // ---- 1. 单击主体 → 预填，不发送 ----
+  let prefilled = '';
+  mainChips[0]?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 80));
+  prefilled = textarea.value;
+  const sentAfterPick = userMsgCount() > beforePick;
+
+  // ---- 2. 点 ➤ 直发 ----
+  const zap = chips.find((b) =>
+    b.getAttribute('aria-label')?.startsWith('直接发送'),
+  ) as HTMLButtonElement | undefined;
+  zap?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  const sentAfterZap = userMsgCount() > beforePick;
+
+  // 等这轮跑完，芯片重新出现
+  await new Promise((r) => setTimeout(r, 3600));
+  const beforeDbl = userMsgCount();
+  const group2 = container.querySelector('[aria-label="行动建议"]');
+  const chips2 = group2
+    ? Array.from(group2.querySelectorAll('button')).filter(
+        (b) => !b.getAttribute('aria-label')?.startsWith('直接发送'),
+      )
+    : [];
+
+  // ---- 3. 双击主体 → 直发 ----
+  chips2[0]?.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 200));
+  const sentAfterDblClick = userMsgCount() > beforeDbl;
+
+  return {
+    ok:
+      mainChips.length >= 3 &&
+      prefilled.trim().length > 0 &&
+      sentAfterPick === false &&
+      sentAfterZap === true &&
+      sentAfterDblClick === true,
+    prefilled,
+    sentAfterPick,
+    sentAfterZap,
+    sentAfterDblClick,
+    chipCount: mainChips.length,
+  };
+}

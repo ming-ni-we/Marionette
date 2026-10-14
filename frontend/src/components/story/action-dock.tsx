@@ -79,10 +79,33 @@ export function ActionDock({
     }
   };
 
-  /** 点建议 = 直接把 label 当成一轮输入发出去（后端按自然语言解析意图）。 */
+  /**
+   * 单击建议 = **预填**到输入框（S15-2）。
+   *
+   * 此前是 `onSend(s.label)` 直接发 —— 芯片本体就代表"这轮走这条路"，玩家
+   * 一点就被推着走，想加半句台词都来不及。改为预填后可编辑：想照做就回车，
+   * 想补一句就接着写。**直发保留为双击 / ⚡ 按钮**（老玩家的肌肉记忆 + 快路径）。
+   */
   const pick = (s: ActionSuggestion) => {
     if (disabled || generating) return;
+    setText(s.label);
+    // 焦点交还输入框，光标落到末尾 —— 预填的意义就在于"接着改"
+    requestAnimationFrame(() => {
+      const el = textareaRef.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(el.value.length, el.value.length);
+      el.style.height = 'auto';
+      el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    });
+  };
+
+  /** 直发（双击 / ⚡）：跳过编辑，一步走完。 */
+  const pickAndSend = (s: ActionSuggestion) => {
+    if (disabled || generating) return;
     onSend(s.label);
+    setText('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
   };
 
   const blocked = Boolean(disabled) || generating;
@@ -101,7 +124,7 @@ export function ActionDock({
               <Sparkles className="size-3.5 text-accent" aria-hidden="true" />
               <span className="text-xs font-medium text-fg-2">导演给了几个方向</span>
               <span className="text-xs text-meta">
-                （点一下就走这条路，也可以完全不理，自己写）
+                （点一下填进输入框再改，双击或按 ➤ 直接走）
               </span>
             </div>
             <div className="flex flex-wrap gap-1.5" role="group" aria-label="行动建议">
@@ -111,6 +134,7 @@ export function ActionDock({
                   suggestion={s}
                   disabled={blocked}
                   onPick={() => pick(s)}
+                  onPickAndSend={() => pickAndSend(s)}
                 />
               ))}
             </div>
@@ -211,30 +235,52 @@ export function ActionDock({
   );
 }
 
-/** 单条建议按钮：文案永远在，图标只做分类辅助。 */
+/**
+ * 单条建议芯片（S15-2）。
+ *
+ * 三种交互，各有明确入口 —— 不让玩家去猜：
+ *   - **单击** → 预填到输入框（主路径：多数人想改一两个字再发）
+ *   - **双击** → 直接发送（快路径，点击类操作，不依赖键盘）
+ *   - **➤ 小按钮** → 直接发送（显式入口：触屏没有"双击"语义，无障碍也读不出来）
+ *
+ * 文案永远在，图标只做分类辅助。
+ */
 function SuggestionButton({
   suggestion,
   disabled,
   onPick,
+  onPickAndSend,
 }: {
   suggestion: ActionSuggestion;
   disabled: boolean;
   onPick: () => void;
+  onPickAndSend: () => void;
 }) {
   const meta = TONE_META[suggestion.tone ?? 'act'];
   const { Icon } = meta;
 
   return (
-    <Hint label={suggestion.hint || `${meta.label}：${suggestion.label}`}>
+    <span
+      className={cn(
+        'group/action inline-flex max-w-full items-center gap-1 rounded-md border border-border bg-surface pr-1 pl-2.5 py-1.5',
+        'motion-fast hover:border-border-strong hover:bg-surface-warm',
+        'focus-within:border-accent',
+        disabled && 'opacity-45',
+      )}
+    >
+      {/* 主体：单击预填、双击直发。
+          ⚠️ 双击前浏览器**必然**先派发一次 click（预填）——这是可接受的：
+          视觉上表现为"填进去 → 立刻发出"，正文不会出现两次。 */}
       <button
         type="button"
         onClick={onPick}
+        onDoubleClick={onPickAndSend}
         disabled={disabled}
+        title={suggestion.hint || `${meta.label}：${suggestion.label}`}
         className={cn(
-          'group/action inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-surface px-2.5 py-1.5 text-left text-sm leading-snug text-fg-2',
-          'motion-fast hover:border-border-strong hover:bg-surface-warm hover:text-fg',
-          'focus-visible:border-accent',
-          'disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-border disabled:hover:bg-surface disabled:hover:text-fg-2',
+          'inline-flex min-w-0 items-center gap-1.5 text-left text-sm leading-snug text-fg-2',
+          'hover:text-fg focus-visible:outline-none',
+          'disabled:cursor-not-allowed disabled:hover:text-fg-2',
         )}
       >
         <Icon className={cn('size-3.5 shrink-0', meta.toneClass)} aria-hidden="true" />
@@ -245,7 +291,26 @@ function SuggestionButton({
           ) : null}
         </span>
       </button>
-    </Hint>
+
+      {/* 直发。stopPropagation：否则会连带触发主体的 click（多一次预填，无害但脏） */}
+      <button
+        type="button"
+        aria-label={`直接发送：${suggestion.label}`}
+        title="直接发送"
+        disabled={disabled}
+        onClick={(e) => {
+          e.stopPropagation();
+          onPickAndSend();
+        }}
+        className={cn(
+          'ml-0.5 inline-flex size-5 shrink-0 items-center justify-center rounded text-meta',
+          'motion-fast hover:bg-accent-subtle hover:text-accent focus-visible:text-accent focus-visible:outline-none',
+          'disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:hover:text-meta',
+        )}
+      >
+        <Send className="size-3" aria-hidden="true" />
+      </button>
+    </span>
   );
 }
 

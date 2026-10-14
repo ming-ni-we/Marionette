@@ -182,7 +182,7 @@ const ROUTES = [
   { path: '/presets/p1f0a1e2-0001-4c01-9b01-000000000001', expect: /日常向/ },
 ];
 
-const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList, probeStoryMultiTurn } = await import(
+const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList, probeStoryMultiTurn, probeSuggestionChip } = await import(
   pathToFileURL(outfile).href
 );
 
@@ -292,6 +292,10 @@ const sl = await probeSessionList();
 document.getElementById('root').innerHTML = '';
 const mt = await probeStoryMultiTurn();
 
+/* ------------- 3.8) 建议芯片交互（S15-2：单击预填 / 直发）------------- */
+document.getElementById('root').innerHTML = '';
+const chip = await probeSuggestionChip();
+
 /* --------------------------------- 4) 报告 -------------------------------- */
 console.error = origErr;
 let failed = 0;
@@ -356,8 +360,19 @@ if (!mt.ok) {
   }
 }
 
+console.log(
+  `${chip.ok ? 'PASS' : 'FAIL'}  建议芯片交互  芯片=${chip.chipCount} 单击预填="${chip.prefilled}" 单击误发=${chip.sentAfterPick} ➤直发=${chip.sentAfterZap} 双击直发=${chip.sentAfterDblClick}`,
+);
+if (!chip.ok) {
+  if (chip.chipCount < 3) console.log('       ✗ 芯片数不足 3');
+  if (!chip.prefilled.trim()) console.log('       ✗ 单击没有预填到输入框');
+  if (chip.sentAfterPick) console.log('       ✗ 单击就发出去了（应只预填）');
+  if (!chip.sentAfterZap) console.log('       ✗ ➤ 按钮没有直发');
+  if (!chip.sentAfterDblClick) console.log('       ✗ 双击没有直发');
+}
+
 const probeFailed =
-  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1) + (mt.ok ? 0 : 1);
+  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1) + (mt.ok ? 0 : 1) + (chip.ok ? 0 : 1);
 console.log(
   failed === 0 && errors.length === 0 && probeFailed === 0
     ? '\n[结论] PASS'
