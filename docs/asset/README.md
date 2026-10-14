@@ -14,9 +14,9 @@
 
 | 问题 | 答案 |
 |---|---|
-| 代码在哪？ | **服务器 `ubuntu@101.33.117.223:/opt/marionette` ＝ 权威最新版** |
-| GitHub 上是新版吗？ | **不是**。GitHub 只到 `c9f6da5`（S11 之前），**不含 S1–S12 剧情引擎** |
-| 怎么拿？ | `rsync` 从服务器拉（见下），**不要指望 `git clone` 拿到最新版** |
+| 代码在哪？ | **服务器 `ubuntu@101.33.117.223:/opt/marionette` ＝ 权威运行版** |
+| GitHub 上是新版吗？ | ✅ **是（2026-10-14 起）**。`ming-ni-we/Marionette` 远端 `main` = `5d989ed`… 现已含 S1–S14 全部代码 + 火影剧情资产，与本地一致 |
+| 怎么拿？ | **`git clone https://github.com/ming-ni-we/Marionette.git`**（已是完整最新版）；或 `rsync` 从服务器拉 |
 
 ```bash
 # 取代码（会排除 .env / data / backups 等敏感与运行时目录）
@@ -75,6 +75,9 @@ S7  ✅ opening.py                S14 ⬜ 联调 + 回归 + 部署
 | 现状清单 / 待办 / 风险 | [`07-status-and-backlog.md`](./07-status-and-backlog.md) |
 | **改完代码怎么发布（推 GitHub）** | [`08-release-discipline.md`](./08-release-discipline.md) |
 | **接下来要做什么（唯一权威路线图）** | [`09-project-plan.md`](./09-project-plan.md) |
+| **玩家体验优化（S15，7 项）** | [`09-project-plan.md`](./09-project-plan.md) §4.5 |
+| 玩家体验诊断原始报告（含核实批注） | [`11-player-experience-report.md`](./11-player-experience-report.md) |
+| 剧情成品说明（雾隐町 / 木叶） | [`10-story-naruto.md`](./10-story-naruto.md) |
 
 **任务卡**（每张卡都可独立领取）：
 

@@ -1,7 +1,7 @@
 {
   "$comment": "机器可读的任务索引 —— 供并行任务快速定位，人类请读 README.md",
   "project": "提线 (Marionette)",
-  "generated_at": "2026-10-13",
+  "generated_at": "2026-10-14",
   "repo": "https://github.com/ming-ni-we/Marionette",
   "live": "http://101.33.117.223",
   "asset_root": "/workspace/marionette/docs/asset",
@@ -36,9 +36,10 @@
   },
   "progress": {
     "total_steps": 14,
-    "done": 12,
-    "pending": 2,
-    "percent": 86
+    "done": 14,
+    "pending": 0,
+    "percent": 100,
+    "note": "S1–S14 全部完成（含 GitHub 推送）。后续工作见 project_plan 的 S15 章节。"
   },
   "completed_steps": [
     {
@@ -350,6 +351,87 @@
         "服务器已部署并线上验收",
         "smoke 新增会话列表探针"
       ]
+    },
+    {
+      "id": "S15",
+      "title": "玩家体验优化（7 项）",
+      "card": "09-project-plan.md#45--s15--玩家体验优化2026-10-14-新增",
+      "priority": 1,
+      "parallel_safe": false,
+      "blocked_by": [],
+      "summary": "依据《提线平台_玩家体验优化方案》+ 代码核实。核心诊断：导演每轮的 actions 只走 SSE 瞬态、刷新即丢，玩家看不到；输入门槛全压在玩家身上。主轴是「把导演已经想好的答案递到玩家手边」，不加新 AI 能力。",
+      "subtasks": [
+        {
+          "id": "S15-1",
+          "title": "建议动作持久化 + 会话恢复",
+          "priority": "P0",
+          "cost": "后端复用 extensions JSONB（不改表）+ 前端 setStorySnapshot 补 suggestions",
+          "acceptance": "重开会话必现 3 条芯片；刷新不空；首轮（仅序幕）也有建议",
+          "evidence": "action_suggester.py docstring「不落库」；chat.py:506-511 唯一下发点；use-chat-stream.ts:402-408 只回填 cast；story-runtime.tsx:99 suggestions 初值 []",
+          "gotcha": "story-runtime.tsx:241 director 事件到达时会 setSuggestions([])，勿把恢复的建议清掉"
+        },
+        {
+          "id": "S15-2",
+          "title": "芯片点击改为预填（非直发）",
+          "priority": "P0",
+          "cost": "前端 ~10 行 + 探针",
+          "acceptance": "单击预填可编辑；双击/⚡ 直发",
+          "evidence": "action-dock.tsx:83-86 pick() 直接 onSend(s.label)"
+        },
+        {
+          "id": "S15-3",
+          "title": "意图四键输入条（tone 升级为输入模式）",
+          "priority": "P1",
+          "cost": "前端 1 天；⚠️ 要真正影响导演还需改代码（见 S15-4）",
+          "acceptance": "选 tone 后 placeholder 变化；payload 带 tone；导演按意图配戏",
+          "evidence": "tone 四分类已完整实现（action_suggester.py:30 TONES / action-dock.tsx:24-29 TONE_META），无需新建"
+        },
+        {
+          "id": "S15-4",
+          "title": "导演侧「短输入增补」",
+          "priority": "P1",
+          "cost": "⚠️ 必须改代码，非「改 preset」",
+          "acceptance": "「查脚印」3 字输入也能推进一拍且不反问；加单测覆盖短输入判定",
+          "evidence": "director.py:399-400 只取 preset.system 且截断 1200 字；instruction 对导演完全无效；_DIRECTOR_SYSTEM 硬编码输出契约",
+          "gotcha": "报告说「改 prompt 不改代码」——代码核实为不成立，行为规则必须写进 _DIRECTOR_SYSTEM"
+        },
+        {
+          "id": "S15-5",
+          "title": "叙事瘦身 + 消息聚合",
+          "priority": "P1",
+          "cost": "前端 1~2 天 + 改 _DIRECTOR_SYSTEM",
+          "acceptance": "单轮 AI 总输出 ≤400 字；台词角色 ≤2；聚合块视觉正确（含 reduced-motion）",
+          "evidence": "实测单条最长 564 字、一轮 4~6 条消息"
+        },
+        {
+          "id": "S15-6",
+          "title": "新手引导三件套",
+          "priority": "P2",
+          "cost": "前后端各 1 天",
+          "acceptance": "首轮即有建议；卡壳提示出现且不打扰；「继续」按钮可推进"
+        },
+        {
+          "id": "S15-7",
+          "title": "剧情状态可视化（flags/tension/beat）",
+          "priority": "P2",
+          "cost": "前端 1 天",
+          "acceptance": "flags/tension/beat 可折叠展示；刷新后仍可见（依赖 S15-1）"
+        }
+      ],
+      "north_star": {
+        "单轮输入字数中位数": "103 字 → ≤20 字",
+        "首 5 轮流失率": "未埋点 → 下降",
+        "建议芯片点击率": "未埋点 → ≥60%"
+      },
+      "order": "S15-1 + S15-2（同批）→ S15-4 → S15-3 + S15-5 → S15-6 + S15-7",
+      "owns_files": [
+        "backend/app/services/action_suggester.py",
+        "backend/app/services/chat.py",
+        "backend/app/services/director.py",
+        "frontend/src/components/story/action-dock.tsx",
+        "frontend/src/hooks/use-chat-stream.ts",
+        "frontend/src/pages/story-runtime.tsx"
+      ]
     }
   ],
   "shared_conflict_hotspots": [
@@ -458,6 +540,18 @@
     },
     "decided_at": "2026-10-13 11:45",
     "decision": "用户拍板：先做 S13，代码连同 GitHub 推送一起做（不单独推 S1–S12）",
-    "code_authority_until_push": "服务器 ubuntu@101.33.117.223:/opt/marionette（GitHub 仍是旧版 3ac1cc3，勿从 GitHub 取码）"
+    "code_authority_until_push": "服务器 ubuntu@101.33.117.223:/opt/marionette（GitHub 仍是旧版 3ac1cc3，勿从 GitHub 取码）",
+    "s15_player_experience": {
+      "added_at": "2026-10-14",
+      "source_report": "提线平台_玩家体验优化方案.md",
+      "card": "09-project-plan.md#45--s15--玩家体验优化2026-10-14-新增",
+      "verified_against_code": true,
+      "cost_corrections": [
+        "actions 持久化：原估偏高 —— 有现成 JSONB（extensions），纯接线",
+        "tone 四分类：原估偏高 —— 前后端已完整实现",
+        "/actions 端点：原估偏低 —— 该端点每次实时重跑 LLM，非读缓存",
+        "导演 prompt 改造：原估偏低 —— instruction 对导演无效，必须改 _DIRECTOR_SYSTEM"
+      ]
+    }
   }
 }
