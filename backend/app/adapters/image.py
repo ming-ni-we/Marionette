@@ -55,6 +55,8 @@ class CloudImageProvider(ImageProvider):
             "n": 1,
             "size": f"{width}x{height}",
             "response_format": "b64_json",
+            # 火山方舟默认给图加「AI 生成」角标；显式关闭（OpenAI 协议下未知字段会被忽略，无害）
+            "watermark": False,
         }
         if opts.get("negative_prompt"):
             body["negative_prompt"] = opts["negative_prompt"]
@@ -98,9 +100,22 @@ class CloudImageProvider(ImageProvider):
         else:
             raise UpstreamError("图像服务返回了未知格式。", error_class=ErrorClass.unknown)
 
+        # 按真实字节流嗅探 MIME：厂商返回的未必是 PNG（火山 Seedream 实测回 JPEG），
+        # 硬编码 image/png 会让归档资产带错误 MIME，影响导出/下载展示。
+        if data.startswith(b"\xff\xd8\xff"):
+            content_type = "image/jpeg"
+        elif data.startswith(b"\x89PNG\r\n\x1a\n"):
+            content_type = "image/png"
+        elif data.startswith((b"GIF87a", b"GIF89a")):
+            content_type = "image/gif"
+        elif data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+            content_type = "image/webp"
+        else:
+            content_type = "application/octet-stream"
+
         return GeneratedImage(
             data=data,
-            content_type="image/png",
+            content_type=content_type,
             meta={"prompt": prompt, "width": width, "height": height, "model": body["model"]},
         )
 

@@ -41,6 +41,109 @@
 
 ---
 
+## C2. 云端图像 API 接入（火山方舟 Seedream 实测，2026-10-14）
+
+> 三条坑的共性：**症状看着像「配置错了」，实际是「账户状态」或「厂商默认值」**。
+> 排查顺序必须是：**先分模型实测 → 再看错误码语义 → 最后才怀疑代码**。
+
+### C2-1. ⚠️ `ModelNotOpen` **不是**「没充钱」，是「模型没开通」
+
+**症状**：出图返回 404，看着像模型名写错。
+
+```json
+{"error":{"code":"ModelNotOpen",
+  "message":"Your account 2132988262 has not activated the model doubao-seedream-5-0-flash-260915.
+             Please activate the model service in the Ark Console."}}
+```
+
+**根因**：火山方舟的**每个模型都要在控制台「开通管理」里逐个手动开通**。
+未开通时**连免费额度都用不了**，请求在网关就被拦下 —— 与账户余额无关。
+
+**修法**：
+1. 进 [开通管理页](https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement)
+2. 找到「视觉模型」分类 → 目标模型 → 点「开通服务」→ 勾选协议
+3. 建议同时勾「全选」+「自动开通新增模型」，避免以后漏开
+4. **顺手设一个推理限额**（设成免费额度以内）→ 额度用完自动暂停，不产生意外账单
+
+**排错关键**：`ModelNotOpen` 与 `InvalidEndpointOrModel.NotFound` **不是一回事**。
+后者是模型名真写错了（我实测 `doubao-seedream-5.0-flash-260915` 这种带点号的写法就会报它）。
+
+---
+
+### C2-2. ⚠️ `AccountOverdueError` 是**账户级**拦截，但**按模型额度粒度放行**
+
+**症状**：**同一个 Key、同一个容器、同一份代码**，有的模型 403、有的模型正常出图。
+
+```json
+{"error":{"code":"AccountOverdueError",
+  "message":"The request failed because your account has an overdue balance."}}
+```
+
+**实测对照**（2026-10-14，账号 `2132988262`）：
+
+| 模型 | 结果 |
+|---|---|
+| `doubao-seedream-5-0-pro-260628` | ❌ 403 `AccountOverdueError` |
+| `doubao-seedream-4-0-20260415` | ✅ **正常出图** |
+| `doubao-seed-2-1-lite-260915`（纯文本） | ❌ 403 `AccountOverdueError` |
+
+**根因**：免费额度耗尽后按「账户无余额」拦截，但**仍有剩余免费额度的模型照常放行**。
+
+**为什么这条坑很阴**：同一个模型 `5.0-pro` 在**20 分钟前还能出图**，之后突然 403。
+一度让我误判为「容器网络出口问题」——因为容器内 curl 403、宿主机 curl 曾成功。
+
+**修法 / 排查纪律**：
+- **必须分模型实测**，绝不能用「某模型失败」推断「配置错了」
+- 出图失败时先跑一遍：`/api/v3/models` 看状态 → 逐个模型试出图 → 再读错误码
+- 账户欠费需在[费用中心](https://console.volcengine.com/finance)充值；或先用仍有额度的模型
+
+---
+
+### C2-3. ⚠️ 厂商默认水印 + 适配器 MIME 硬编码（**代码缺陷**，已修）
+
+**症状 A**：出的图右下角有「**AI 生成**」角标。
+**根因**：火山的 `watermark` 参数**默认 `true`**，而适配器请求体里根本没这个字段。
+**修法**：`adapters/image.py` 请求体显式加 `"watermark": False`。
+（OpenAI 协议下未知字段会被忽略，因此对别家厂商无害。）
+
+**症状 B**：JPEG 字节被标成 `image/png`、文件后缀也存成 `.png`。
+**根因**：`adapters/image.py` 原来硬编码 `content_type="image/png"`，
+而**火山 Seedream 实际返回 JPEG**（魔数 `ff d8 ff e0`）。`image_hook.py:226` 再据此取名 `.png`。
+**修法**：按**字节流嗅探** MIME（JPEG / PNG / GIF / WebP），未知回退 `application/octet-stream`。
+
+**回归守卫**：`backend/tests/test_image_adapter.py`（13 条），
+其中 `test_jpeg_does_not_get_png_label` 是点名守卫 ——
+把嗅探改回硬编码 `image/png`，该用例立刻 FAIL。
+
+---
+
+### C2-4. 国内构建/安装慢到「像卡死」
+
+**症状**：`docker compose build` 跑 51 分钟没结束；`ps` 看到 `pip install .` 进程
+**耗时 40 分钟只消耗 7 秒 CPU**（典型的网络等 IO）。
+
+**根因**：官方源在国内网络下极慢。实测对比：
+
+| 源 | 响应 |
+|---|---|
+| `pypi.org` | **15.0 s** |
+| `mirror.sjtu.edu.cn`（上海交大） | **0.15 s** |
+| `registry.npmjs.org` | 0.92 s |
+| `registry.npmmirror.com` | **0.08 s** |
+
+**修法**：Dockerfile 加 `ARG`（默认仍为官方源，不改变生产行为），构建时传参：
+
+```bash
+docker compose build api \
+  --build-arg PIP_INDEX_URL=https://mirror.sjtu.edu.cn/pypi/web/simple \
+  --build-arg PIP_TRUSTED_HOST=mirror.sjtu.edu.cn \
+  --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+```
+
+**效果**：51 分钟 → **1 分 4 秒**。
+
+---
+
 ## D. 剧情引擎（本轮新增，全部是开发中真实撞到的）
 
 ### D1. ⚠️ 状态机死锁：会话永久卡在 `generating`

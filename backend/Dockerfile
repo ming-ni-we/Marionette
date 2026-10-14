@@ -14,6 +14,12 @@ FROM node:22-slim AS web
 WORKDIR /src
 COPY . .
 
+# npm 镜像源：默认官方源在国内网络下极慢（实测 registry.npmjs.org 建连 ~1s，
+# 大依赖树安装动辄数十分钟）。用 ARG 传入以便本地构建加速，默认仍为官方源，
+# 生产构建行为不变（不传参时就是 npm 默认源）。
+ARG NPM_REGISTRY=""
+ENV NPM_CONFIG_REGISTRY="${NPM_REGISTRY}"
+
 RUN if [ -f frontend/package.json ]; then \
       cd frontend && \
       echo "[web] 丢弃异平台 package-lock.json：Windows 生成的 lock 不含 Linux 原生可选依赖，npm ci 会静默漏装 rollup/esbuild 的 linux 包"; \
@@ -48,7 +54,11 @@ RUN apt-get update \
 # 先装依赖再拷业务代码无意义（本项目用 pyproject 一并安装），直接整体拷贝
 COPY backend/ /app/
 
-RUN pip install --upgrade pip && pip install .
+# PyPI 镜像源：同上，默认官方源，构建时用 --build-arg 覆盖。
+ARG PIP_INDEX_URL=""
+ARG PIP_TRUSTED_HOST=""
+RUN pip install --upgrade pip ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} \
+    && pip install ${PIP_INDEX_URL:+-i "$PIP_INDEX_URL"} ${PIP_TRUSTED_HOST:+--trusted-host "$PIP_TRUSTED_HOST"} .
 
 # 前端构建产物 → /app/static（api 容器同时托管 SPA）
 COPY --from=web /src/frontend/dist /app/static

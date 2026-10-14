@@ -76,7 +76,9 @@ S7  ✅ opening.py                S14 ⬜ 联调 + 回归 + 部署
 | **改完代码怎么发布（推 GitHub）** | [`08-release-discipline.md`](./08-release-discipline.md) |
 | **接下来要做什么（唯一权威路线图）** | [`09-project-plan.md`](./09-project-plan.md) |
 | **玩家体验优化（S15，7 项）** | [`09-project-plan.md`](./09-project-plan.md) §4.5 |
+| **对话配图 / 火山方舟出图（S16）** | [`task-S16-image-generation.md`](./task-S16-image-generation.md) |
 | 玩家体验诊断原始报告（含核实批注） | [`11-player-experience-report.md`](./11-player-experience-report.md) |
+| 文生图选型评估（含完整对比表） | [`12-image-api-selection.html`](./12-image-api-selection.html) |
 | 剧情成品说明（雾隐町 / 木叶） | [`10-story-naruto.md`](./10-story-naruto.md) |
 
 **任务卡**（每张卡都可独立领取）：
@@ -88,6 +90,7 @@ S7  ✅ opening.py                S14 ⬜ 联调 + 回归 + 部署
 | [`task-S13-session-list.md`](./task-S13-session-list.md) | 会话列表集成（前端） | ⚠️ 依赖 S12 的路由约定，但可先写 |
 | [`task-INFRA-ops.md`](./task-INFRA-ops.md) | 运维待办（备份/HTTPS/密码/脏数据） | ✅ 完全独立，不与代码冲突 |
 | [`task-GIT-push.md`](./task-GIT-push.md) | 推送代码到 GitHub | ✅ 完全独立 |
+| [`task-S16-image-generation.md`](./task-S16-image-generation.md) | 对话配图（火山方舟出图） | 🟡 链路已通，剩触发钩子 |
 
 > 🗺️ **想知道「接下来做什么」？直接看 [`09-project-plan.md`](./09-project-plan.md)** —— 项目计划唯一权威清单。
 >
