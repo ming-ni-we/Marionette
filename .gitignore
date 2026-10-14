@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+
+# AI Agent 作战手册（含服务器密码 / PAT / API Key，绝不入库）
+AGENT.md
+AGENT.local.md
 # 备份脚本的 COS 凭据（含 AK/SK），绝不入库
 .backup-env
 
