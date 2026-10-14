@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     image_api_key: str = ""
     image_model: str = ""
 
+    # ---- 剧情配图自动触发（S16 §4.6.3）----
+    # 默认**关闭**：出图是花钱的功能，绝不能让「没开过但每轮都在扣费」发生。
+    story_image_enabled: bool = False
+    # 每局出图总配额（硬性成本上限：8 × ¥0.30 = ¥2.4）
+    story_image_quota: int = 8
+    # 两次出图之间的最小轮次间隔（防「刚画完又画」）
+    story_image_min_gap: int = 2
+
     # ---- 存储 / 静态 ----
     assets_dir: str = "./data/assets"
     config_dir: str = "./data/config"

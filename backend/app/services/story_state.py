@@ -38,6 +38,11 @@ DEFAULT_STORY: dict[str, Any] = {
     "flags": {},  # 剧情标记：{"saw_letter": true}
     "last_director_at_turn": -1,  # 上次成功调用导演的轮次（防重复决策）
     "director_failures": 0,  # 连续失败计数，≥3 触发熔断
+    # ---- 剧情配图（S16 §4.6.3）----
+    "image_count": 0,  # 本局已出图张数（配额用）
+    "last_image_turn": None,  # 上次出图的轮次（最小间隔用）
+    "image_nodes": [],  # 已配图的节点 id（去重：同一节点只画一次）
+    "image_cast": [],  # 已配图的角色 id（去重：同一角色只画一次）
 }
 
 #: `scene` 新增键的默认值（`location/time/mood/summary` 由旧字段复用）

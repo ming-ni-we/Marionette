@@ -40,6 +40,12 @@ services:
     build:
       context: .
       dockerfile: backend/Dockerfile
+      args:
+        # 国内网络下官方源极慢（实测 pip 装依赖 51 分钟 vs 1 分钟）。
+        # 默认空 = 官方源，生产构建行为不变；本地开加速请在本机 .env 里覆盖。
+        NPM_REGISTRY: "${NPM_REGISTRY:-}"
+        PIP_INDEX_URL: "${PIP_INDEX_URL:-}"
+        PIP_TRUSTED_HOST: "${PIP_TRUSTED_HOST:-}"
     container_name: marionette-api
     restart: unless-stopped
     environment:
@@ -63,6 +69,10 @@ services:
       IMAGE_BASE_URL: "${IMAGE_BASE_URL:-}"
       IMAGE_API_KEY: "${IMAGE_API_KEY:-}"
       IMAGE_MODEL: "${IMAGE_MODEL:-}"
+      # 剧情配图自动触发（S16 §4.6.3）；默认关闭，出图是花钱的功能
+      STORY_IMAGE_ENABLED: "${STORY_IMAGE_ENABLED:-false}"
+      STORY_IMAGE_QUOTA: "${STORY_IMAGE_QUOTA:-8}"
+      STORY_IMAGE_MIN_GAP: "${STORY_IMAGE_MIN_GAP:-2}"
       # 本地卷
       ASSETS_DIR: "/app/data/assets"
       CONFIG_DIR: "/app/data/config"

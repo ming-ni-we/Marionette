@@ -161,8 +161,15 @@ class TestSingleSpeakerParity:
 
         # 顺序断言：world_info 必须最先
         assert names[0] == "world_info"
-        # 核心骨架（忽略剧情专有的 director / speaker_switch / actions）
-        core = [n for n in names if n not in {"director", "speaker_switch", "actions", "node"}]
+        # 核心骨架：忽略**剧情专有**事件。
+        # image 与 node/actions 同属剧情专有（S16 §4.6.3 的自动配图会插在 usage 之后、
+        # actions 之前），不属于「1v1 也应有」的核心事件，因此一并排除；
+        # 它自身的位置另有 TestStoryImageEvents 专门守卫。
+        core = [
+            n
+            for n in names
+            if n not in {"director", "speaker_switch", "actions", "node", "image"}
+        ]
         assert core[0] == "world_info"
         assert core[1] == "start"
         assert core[-2] == "usage"
@@ -816,3 +823,313 @@ class TestConcurrency:
         assert result["interrupted"] is True
         rows = await svc.list_messages(row.id)
         assert [m for m in rows if m.status == "streaming"] == []
+
+
+# --------------------------------------------------------------------------- #
+# 剧情配图事件接线（S16 §4.6.3）
+# --------------------------------------------------------------------------- #
+
+
+class _FakeImageTrigger:
+    """`ImageTriggerSvc` 替身：固定返回预设判定与提示词。
+
+    只测「chat 是怎么把触发服务接进事件流的」，触发规则本身由
+    `test_image_trigger.py` 覆盖，两边职责不重叠。
+
+    注意：本替身**尊重 `enabled` 参数**。若像最初那样只认 `self._should`，
+    「开关关闭不出图」这条断言就变成在测假对象，而非测 chat 的接线。
+    """
+
+    def __init__(self, *, should: bool, reason: str = "node") -> None:
+        self._should = should
+        self._reason = reason
+        self.decide_calls: list[dict[str, Any]] = []
+        self.render_calls: list[dict[str, Any]] = []
+
+    def decide(self, **kwargs: Any):
+        from app.services.image_trigger import TriggerDecision
+
+        self.decide_calls.append(kwargs)
+        if not kwargs.get("enabled"):
+            return TriggerDecision(False, "disabled")
+        if not self._should:
+            return TriggerDecision(False, "no_signal")
+        return TriggerDecision(True, self._reason, {"node_id": "n1"})
+
+    async def render_prompt(self, **kwargs: Any):
+        self.render_calls.append(kwargs)
+        return ("一个雨夜的弄堂，青石板反光。", "文字, 水印", "landscape", "template")
+
+
+class _FakeImageHook:
+    """`ImageHook` 替身：不落盘、不调外部 API，直接返回带 asset_id 的 job。"""
+
+    def __init__(self, *, asset_id: Any = "asset-1", fail: bool = False) -> None:
+        self._asset_id = asset_id
+        self._fail = fail
+        self.calls: list[dict[str, Any]] = []
+
+    async def generate_and_archive(self, **kwargs: Any):
+        self.calls.append(kwargs)
+        if self._fail:
+            raise RuntimeError("upstream down")
+        from types import SimpleNamespace
+
+        return SimpleNamespace(id="job-1", asset_id=self._asset_id)
+
+
+class TestStoryImageEvents:
+    """守卫：自动配图事件的位置、字段、以及「失败不记账」的契约。"""
+
+    async def _prep(
+        self,
+        db: AsyncSession,
+        card_and_preset: tuple,
+        monkeypatch: pytest.MonkeyPatch,
+        *,
+        enabled: bool,
+        trigger: _FakeImageTrigger,
+        hook: _FakeImageHook,
+        actions: list[dict[str, Any]] | None = None,
+    ) -> Any:
+        from app.core.config import get_settings
+        from app.services.chat import ChatSvc
+
+        settings = get_settings()
+        monkeypatch.setattr(settings, "story_image_enabled", enabled, raising=False)
+
+        row = await _make_story_session(db, card_and_preset)
+        chat = ChatSvc(db)
+        monkeypatch.setattr(chat, "_router", _FakeStreamRouter([["她", "笑了", "。"]]))
+        monkeypatch.setattr(
+            chat,
+            "_director",
+            _FakeDirectorSvc([{"speakers": [{"id": "su_wan", "name": "苏晚"}]}]),
+        )
+        monkeypatch.setattr(chat, "_suggester", _FakeSuggesterSvc(actions or []))
+        monkeypatch.setattr(chat, "_image_trigger", trigger)
+        monkeypatch.setattr(chat, "_image", hook)
+        return row, chat
+
+    @pytest.mark.asyncio
+    async def test_image_event_sits_between_usage_and_actions(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """契约：`usage` → `image` → `actions` → `done`。
+
+        前端按事件顺序渲染，位置错了会导致图片被塞到行动按钮之后。
+        """
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(),
+            # 给一条建议，否则没有 actions 事件，「image 在 actions 之前」无从断言
+            actions=[{"id": "a1", "label": "推门进去"}],
+        )
+
+        events = await _drain(chat, str(row.id))
+        names = _names(events)
+
+        assert "image" in names, "开启开关 + 触发命中时必须产出 image 事件"
+        assert names.index("usage") < names.index("image") < names.index("done")
+        assert names.index("image") < names.index("actions")
+
+    @pytest.mark.asyncio
+    async def test_image_event_carries_reason_and_asset(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """契约：前端需要 `asset_id` 取图、需要 `reason` 区分节点图/角色图。"""
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True, reason="cast"),
+            hook=_FakeImageHook(asset_id="asset-9"),
+        )
+
+        events = await _drain(chat, str(row.id))
+        payload = _first(events, "image")
+
+        assert payload is not None
+        assert payload["asset_id"] == "asset-9"
+        assert payload["reason"] == "cast"
+        assert payload["job_id"] == "job-1"
+
+    @pytest.mark.asyncio
+    async def test_disabled_switch_skips_without_calling_hook(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """开关关闭时**不得**触达出图服务 —— 这是「绝不默认烧钱」的硬保证。"""
+        hook = _FakeImageHook()
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=False,
+            trigger=_FakeImageTrigger(should=True),
+            hook=hook,
+        )
+
+        events = await _drain(chat, str(row.id))
+
+        assert "image" not in _names(events)
+        assert hook.calls == []
+
+    @pytest.mark.asyncio
+    async def test_image_failure_does_not_break_stream(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """出图炸了也不能影响对话：仍要有 usage/actions/done，且无 error 事件。"""
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(fail=True),
+        )
+
+        events = await _drain(chat, str(row.id))
+        names = _names(events)
+
+        assert "image" not in names
+        assert "error" not in names
+        assert names[-1] == "done"
+
+    @pytest.mark.asyncio
+    async def test_failure_does_not_consume_quota(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """**关键**：出图失败不得记账。否则玩家花了配额却没拿到图。"""
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(fail=True),
+        )
+
+        await _drain(chat, str(row.id))
+        story = chat._story_state.get_story(row)
+
+        assert story.get("image_count", 0) == 0
+        assert story.get("last_image_turn") is None
+
+    @pytest.mark.asyncio
+    async def test_success_consumes_quota_and_turn(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """成功才记账：`image_count` +1、`last_image_turn` 落到本轮。"""
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(),
+        )
+
+        await _drain(chat, str(row.id))
+        story = chat._story_state.get_story(row)
+
+        assert story.get("image_count") == 1
+        assert story.get("last_image_turn") == 0
+        assert story.get("image_nodes") == ["n1"]
+
+    @pytest.mark.asyncio
+    async def test_asset_id_none_is_treated_as_failure(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """归档未回填 asset_id（没落盘）时不得发 image 事件，也不得记账。"""
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=_FakeImageHook(asset_id=None),
+        )
+
+        events = await _drain(chat, str(row.id))
+        story = chat._story_state.get_story(row)
+
+        assert "image" not in _names(events)
+        assert story.get("image_count", 0) == 0
+
+    @pytest.mark.asyncio
+    async def test_empty_prompt_skips_generation(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """提示词为空（LLM 与模板都拿不到料）时应静默跳过，不发事件、不记账。"""
+
+        class _EmptyPromptTrigger(_FakeImageTrigger):
+            async def render_prompt(self, **kwargs: Any):
+                self.render_calls.append(kwargs)
+                return ("", "", "landscape", "template")
+
+        hook = _FakeImageHook()
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_EmptyPromptTrigger(should=True),
+            hook=hook,
+        )
+
+        events = await _drain(chat, str(row.id))
+        story = chat._story_state.get_story(row)
+
+        assert "image" not in _names(events)
+        assert hook.calls == []
+        assert story.get("image_count", 0) == 0
+
+
+class TestExplicitImageRequest:
+    """显式请求（`overrides.image`）走另一条路径，且**不受开关/节流限制**。"""
+
+    @pytest.mark.asyncio
+    async def test_explicit_request_ignores_disabled_switch(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """玩家主动点「画一张」时，即使自动触发开关关闭也应当出图。"""
+        from app.core.config import get_settings
+        from app.services.chat import ChatSvc
+
+        monkeypatch.setattr(
+            get_settings(), "story_image_enabled", False, raising=False
+        )
+        row = await _make_story_session(db, card_and_preset)
+        chat = ChatSvc(db)
+        monkeypatch.setattr(chat, "_router", _FakeStreamRouter([["她", "笑了", "。"]]))
+        monkeypatch.setattr(
+            chat,
+            "_director",
+            _FakeDirectorSvc([{"speakers": [{"id": "su_wan", "name": "苏晚"}]}]),
+        )
+        monkeypatch.setattr(chat, "_suggester", _FakeSuggesterSvc([]))
+        monkeypatch.setattr(
+            chat, "_image_trigger", _FakeImageTrigger(should=False)
+        )
+
+        seen: list[dict[str, Any]] = []
+
+        async def _fake_maybe_image_events(**kwargs: Any):
+            seen.append(kwargs)
+            yield "image", {"asset_id": "manual-1", "reason": "manual"}
+
+        monkeypatch.setattr(chat, "_maybe_image_events", _fake_maybe_image_events)
+
+        events: list[tuple[str, dict]] = []
+        async for e, d in chat.stream_reply(
+            str(row.id), input_text="画一张", overrides={"image": True}
+        ):
+            events.append((e, d))
+
+        assert seen, "显式请求必须走到 _maybe_image_events"
+        assert _first(events, "image") == {"asset_id": "manual-1", "reason": "manual"}

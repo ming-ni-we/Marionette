@@ -34,6 +34,7 @@ os.environ.setdefault("APP_ENV", "test")
 import uuid  # noqa: E402
 from collections.abc import AsyncIterator  # noqa: E402
 
+import pytest  # noqa: E402
 import pytest_asyncio  # noqa: E402
 from sqlalchemy import JSON  # noqa: E402
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB  # noqa: E402
@@ -120,6 +121,23 @@ def _all_mappers() -> list:
     from app.models.base import Base
 
     return list(Base.registry.mappers)
+
+
+@pytest_asyncio.fixture(autouse=True)
+def _disable_story_image_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """单测默认关闭「剧情配图自动触发」（S16 §4.6.3）。
+
+    为什么必须 autouse：出图是**花钱且有网络副作用**的动作。本机 `.env` 里
+    `STORY_IMAGE_ENABLED=true` 时，`get_settings()` 会被测试读到，于是每条走
+    `ChatSvc.stream_reply` 的用例都可能真的去调火山 API —— 既烧钱，又让用例
+    依赖外网而变得不稳定（实测：失败时会先重试 json_format 再重试裸调，单条
+    用例从 0.1s 劣化到 24s）。
+
+    需要验证自动触发的用例请显式覆盖：`monkeypatch.setattr(settings, ...)`。
+    """
+    from app.core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "story_image_enabled", False, raising=False)
 
 
 @pytest_asyncio.fixture

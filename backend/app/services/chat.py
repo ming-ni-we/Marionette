@@ -30,6 +30,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import AppError, ConflictError, NotFoundError
 from app.core.ids import parse_uuid
 from app.core.logging import get_logger
@@ -40,6 +41,11 @@ from app.services.action_suggester import ActionSuggesterSvc
 from app.services.context_assembler import ContextAssembler
 from app.services.director import DirectorSvc
 from app.services.image_hook import ImageHook
+from app.services.image_trigger import (
+    ImageTriggerSvc,
+    aspect_to_size,
+    next_story_state,
+)
 from app.services.llm_router import LLMRouter
 from app.services.moderation import ModerationSvc
 from app.services.session import SessionSvc
@@ -85,6 +91,8 @@ class ChatSvc:
         self._story_state = StoryStateSvc(db)
         self._director = DirectorSvc(db)
         self._suggester = ActionSuggesterSvc(db)
+        # 剧情配图触发（S16 §4.6.3）：只决定「要不要画 / 画什么」，出图仍由 ImageHook 负责
+        self._image_trigger = ImageTriggerSvc(db)
 
     # ------------------------------------------------------------------ #
     async def _load_card_preset_worldbooks(
@@ -493,13 +501,18 @@ class ChatSvc:
                 "completion_tokens": usage_completion,
             }
 
-            # ---- image 事件（沿用 1v1 的出图钩子；本轮无任何消息则跳过）----
+            # ---- image 事件（S16 §4.6.3：自动触发 + 显式请求）----
+            # 优先级：显式 overrides.image > 自动触发（节点 / 新角色）。
+            # 出图失败不冒泡（ImageHook 内部已兜底），配额与去重在成功后才记账。
             if assistant_rows:
-                async for evt in self._maybe_image_events(
+                async for evt in self._story_image_events(
                     overrides=overrides,
                     session_row=session_row,
                     assistant_row=assistant_rows[-1],
-                    content=said[-1]["content"] if said else decision.narration,
+                    decision=decision,
+                    turn=turn,
+                    cast=cast,
+                    said=said,
                 ):
                     yield evt
 
@@ -810,6 +823,108 @@ class ChatSvc:
             return
         if job.asset_id is not None:
             yield EVT_IMAGE, {"asset_id": str(job.asset_id), "job_id": str(job.id)}
+
+    async def _story_image_events(
+        self,
+        *,
+        overrides: dict[str, Any] | None,
+        session_row: Any,
+        assistant_row: Any,
+        decision: Any,
+        turn: int,
+        cast: list[dict[str, Any]],
+        said: list[dict[str, Any]],
+    ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+        """剧情模式的出图事件（S16 §4.6.3）。
+
+        两条路径：
+
+          1. **显式请求**（`overrides.image`）—— 沿用既有行为，最高优先级，
+             无视开关/配额/间隔（玩家主动点的「画一张」不该被节流拦住）。
+          2. **自动触发** —— 由 `ImageTriggerSvc.decide` 判定：
+             节点触发 / 新角色登场，且通过「开关 + 配额 + 间隔 + 去重」四道闸门。
+
+        任何失败都只记 warning，**绝不影响对话主流**；
+        配额与去重是**出图成功后**才记账（失败不占额度）。
+        """
+        # ---- 路径 1：显式请求（不受节流限制）----
+        spec = (overrides or {}).get("image")
+        if spec not in (None, False):
+            content = said[-1]["content"] if said else str(getattr(decision, "narration", "") or "")
+            async for evt in self._maybe_image_events(
+                overrides=overrides,
+                session_row=session_row,
+                assistant_row=assistant_row,
+                content=content,
+            ):
+                yield evt
+            return
+
+        # ---- 路径 2：自动触发 ----
+        settings = get_settings()
+        story = self._story_state.get_story(session_row)
+        trigger = self._image_trigger.decide(
+            enabled=bool(settings.story_image_enabled),
+            turn=turn,
+            story=story,
+            node_triggered=getattr(decision, "node_triggered", None),
+            cast=cast,
+            speakers=getattr(decision, "speakers", None),
+            quota=settings.story_image_quota,
+            min_gap=settings.story_image_min_gap,
+        )
+        if not trigger.should:
+            logger.debug("story image skipped: %s", trigger.reason)
+            return
+
+        try:
+            prompt, negative, aspect, source = await self._image_trigger.render_prompt(
+                scene=self._story_state.get_scene_story(session_row),
+                story=story,
+                cast=cast,
+                said=said,
+                seed=trigger.seed,
+                overrides=overrides,
+            )
+            if not prompt:
+                return
+            size = aspect_to_size(aspect)
+            params: dict[str, Any] = {"negative_prompt": negative, **size}
+            job = await self._image.generate_and_archive(
+                prompt=prompt,
+                params=params,
+                card_id=session_row.card_id,
+                session_id=session_row.id,
+                message_id=assistant_row.id,
+            )
+        except Exception as exc:  # noqa: BLE001 —— 出图失败不影响对话主流程
+            logger.warning("story image failed: %s", type(exc).__name__)
+            return
+
+        if job.asset_id is None:
+            return
+
+        # 出图成功后才记账：配额 / 间隔 / 去重（失败不占额度）
+        self._story_state.set_story(
+            session_row,
+            next_story_state(
+                story=story, turn=turn, reason=trigger.reason, seed=trigger.seed
+            ),
+        )
+        logger.info(
+            "story image generated",
+            extra={
+                "reason": trigger.reason,
+                "source": source,
+                "asset": str(job.asset_id),
+                "turn": turn,
+            },
+        )
+        yield EVT_IMAGE, {
+            "asset_id": str(job.asset_id),
+            "job_id": str(job.id),
+            "reason": trigger.reason,
+        }
 
     async def _finalize_incomplete(
         self,
