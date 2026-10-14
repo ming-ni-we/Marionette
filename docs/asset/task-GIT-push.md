@@ -1,5 +1,41 @@
 # task-GIT-push · 推送代码到 GitHub
 
+> 🎉 **本卡已完成（2026-10-14）**：25 个提交已全部推送到 `ming-ni-we/Marionette`。
+> 远端 `main` = 本地 HEAD = **`5d989ed`**，双向差量 0。以下内容保留为**历史记录与排障手册**。
+
+---
+
+## ✅ 完成记录（2026-10-14）
+
+用户的 fine-grained PAT **首次使用时仍 403**，根因是 **`Contents` 权限默认为 `No access`**。
+在 token 设置里把 **Contents 改为 `Read and write`** 后即刻推送成功：
+
+```
+$ git push --force-with-lease=main:<远端当前sha> \
+    "https://x-access-token:${GH_TOKEN}@github.com/ming-ni-we/Marionette.git" main:main
+ + 30c692f...5d989ed main -> main (forced update)
+```
+
+**验证**：远端 `main` = `5d989ed0a767cbf31dc5b50f6b7f49168bba2e30`，
+`rev-list --left-right --count` 双向均为 `0`。
+
+> ⚠️ **本次新增的坑（易误判）**：
+> `GET /repos/{owner}/{repo}` 返回的 `permissions.push == true` 指的是
+> **你在该仓库里的角色权限**，**不是 PAT 的授权范围**。
+> PAT 权限不足时，该字段照样是 `true`，但 `git push` 与
+> `PUT /contents/...` 都会 403（`Resource not accessible by personal access token`）。
+> **判断 PAT 是否可写，唯一可靠的方法是实测 `PUT /contents/` 或 `git push`。**
+
+> ⚠️ **另一个小插曲**：用 `PUT /contents/__perm_probe__.txt` 探测写权限时，
+> 该探测**会在远端留下一个真实提交**（本次为 `create` + `cleanup` 两个）。
+> 推送前需先 `git fetch` 把远端引用更新，再用
+> `--force-with-lease=<branch>:<期望的远端sha>` **精确覆盖**（比 `--force` 安全：
+> 若远端被他人改动则拒绝推送）。事后确认探测文件已 404。
+
+---
+
+## 📜 以下为历史记录（推送完成前的状态）
+
 > 配套总纲：[`README.md`](./README.md) · **完全独立** ✅
 > 详细原始记录：`/workspace/PUSH-HANDOVER.md`（含完整改动清单与提交信息原文）
 > 关联卡：[`08-release-discipline.md`](./08-release-discipline.md) —— **长期发布纪律（改完代码怎么推）**
