@@ -433,3 +433,68 @@ class TestNextSpeaker:
 
     def test_empty_present_returns_none(self) -> None:
         assert StoryStateSvc.next_speaker_after(_row(scene={}), "su_wan") is None
+
+
+# --------------------------------------------------------------------------- #
+# 行动建议持久化（S15-1）
+# --------------------------------------------------------------------------- #
+class TestSuggestions:
+    """建议落库/读取的边界。
+
+    这些用例守的是「刷新后建议区不空」这条验收 —— 一旦 getter 在缺省/脏数据上
+    抛异常或漏键，玩家重开历史会话就会看到空芯片区（正是 S15-1 要修的 bug）。
+    """
+
+    SAMPLE = [
+        {"id": "a1", "label": "翻看账册", "tone": "observe"},
+        {"id": "a2", "label": "推门进去", "tone": "move"},
+    ]
+
+    def test_get_defaults_empty_on_fresh_row(self) -> None:
+        """全新会话（无 suggestions 键）→ 空列表，不炸。"""
+        assert StoryStateSvc.get_suggestions(_row(state_machine={"story": {}})) == []
+
+    def test_get_defaults_empty_on_missing_story(self) -> None:
+        assert StoryStateSvc.get_suggestions(_row(state_machine={})) == []
+
+    def test_set_then_get_roundtrip(self, svc: StoryStateSvc) -> None:
+        row = _row(state_machine={"story": {}})
+        svc.set_suggestions(row, self.SAMPLE, turn=3)
+        got = StoryStateSvc.get_suggestions(row)
+        assert [s["id"] for s in got] == ["a1", "a2"]
+        assert StoryStateSvc.get_story(row)["suggestions_turn"] == 3
+
+    def test_set_replaces_not_appends(self, svc: StoryStateSvc) -> None:
+        """整体替换：旧建议不该残留在库里（否则玩家看到过期方向）。"""
+        row = _row(state_machine={"story": {"suggestions": self.SAMPLE}})
+        svc.set_suggestions(row, [{"id": "b1", "label": "回头看"}], turn=4)
+        assert [s["id"] for s in StoryStateSvc.get_suggestions(row)] == ["b1"]
+
+    def test_set_empty_clears_previous(self, svc: StoryStateSvc) -> None:
+        """本轮没生成建议 → 明确清空，而非保留上一轮。"""
+        row = _row(state_machine={"story": {"suggestions": self.SAMPLE}})
+        svc.set_suggestions(row, [], turn=5)
+        assert StoryStateSvc.get_suggestions(row) == []
+
+    def test_get_drops_non_dict_elements(self) -> None:
+        """LLM 偶发吐裸字符串 → 丢弃，不能污染前端渲染。"""
+        row = _row(state_machine={"story": {"suggestions": [{"id": "a1"}, "垃圾", 123, None]}})
+        assert [s["id"] for s in StoryStateSvc.get_suggestions(row)] == ["a1"]
+
+    def test_get_returns_deep_copy(self, svc: StoryStateSvc) -> None:
+        """返回深拷贝：调用方改动不能回写进 row（否则脏染状态机）。"""
+        row = _row(state_machine={"story": {"suggestions": self.SAMPLE}})
+        got = StoryStateSvc.get_suggestions(row)
+        got[0]["label"] = "被改了"
+        assert StoryStateSvc.get_suggestions(row)[0]["label"] == "翻看账册"
+
+    def test_set_tolerates_dirty_input(self, svc: StoryStateSvc) -> None:
+        """传进来非 dict 元素 / None 都不该炸。"""
+        row = _row(state_machine={"story": {}})
+        svc.set_suggestions(row, [{"id": "a1"}, "垃圾", None], turn=1)  # type: ignore[list-item]
+        assert [s["id"] for s in StoryStateSvc.get_suggestions(row)] == ["a1"]
+
+    def test_suggestions_key_present_in_default(self) -> None:
+        """DEFAULT_STORY 必须带该键，否则 get_story 合并后取到 KeyError。"""
+        assert DEFAULT_STORY["suggestions"] == []
+        assert DEFAULT_STORY["suggestions_turn"] is None

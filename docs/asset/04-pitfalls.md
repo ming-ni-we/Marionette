@@ -678,3 +678,63 @@ def _disable_story_image_by_default(monkeypatch):
 | F1 | 沙箱 git push 失败 | 沙箱无 GitHub 写凭据。已穷尽 git / gh CLI / 环境变量 / `.git-credentials` / credential-helper / editor_sdk 凭据端点 / GitHub MCP(**只读**) 全部通道。**不是代码问题，是环境缺凭据**。见 `task-GIT-push.md` |
 | F2 | 生产库被集成测试污染 | 历史缺陷（B4/B5），守卫已加。遗留数据待清理 |
 | F3 | DeepSeek key 曾明文出现在对话中 | 建议作废重发，改服务器 `.env` 后 `docker compose up -d` 热替换 |
+
+---
+
+### D16. ⚠️⚠️ 容器只挂 data 目录，代码是 `COPY` 进镜像的 —— 改了代码但 `pytest` 跑的还是旧的（假绿）
+
+**症状**
+
+改完代码在容器里跑测试，结果「全绿」——但**新写的用例根本没被执行**：
+
+```
+$ docker compose exec -T api python -m pytest tests -q
+476 passed, 44 skipped          # ← 数字和改动前一样，可疑
+$ docker compose exec -T api python -m pytest tests/test_story_state.py -q --collect-only | tail -1
+55 tests collected               # ← 应为 64（含新增 9 条）
+$ docker compose exec -T api grep -c TestSuggestions /app/tests/test_story_state.py
+0                                # ← 容器里压根没有新代码
+```
+
+**根因**
+
+`docker-compose.yml` 里 **`api` 服务只挂了两个 data 目录**：
+
+```yaml
+    volumes:
+      - ./data/assets:/app/data/assets
+      - ./data/config:/app/data/config
+```
+
+应用代码是 Dockerfile `COPY` 进镜像的。因此：
+
+- **宿主机改代码 → 容器内不生效**，`docker exec` 里跑的是镜像里的旧快照
+- `docker compose up -d api` 也**不会**重建镜像（它只重建容器）→ 必须 `docker compose build api`
+- 于是「改代码 → 跑测试 → 全绿」整个链路是**对着旧代码**验的，新用例连收集都没收集到
+
+**这是最危险的一类坑**：它不报错、不警告，只是**安静地给你一个假的通过**。比"测试失败"糟得多 —— 失败至少会拦你。
+
+**怎么识别**
+
+- **收集数核对**：新增 N 条用例后 `--collect-only` 的条数应 +N。没变 = 跑的是旧代码
+- **符号探针**：`docker exec <c> grep -c <新函数名> /app/<路径>` —— 返回 0 就说明没同步
+- **别只看 `passed` 数字**：`passed` 数不变本身就是最强的可疑信号
+
+**正确做法（二选一）**
+
+1. **快速迭代**：`docker cp` 单个文件进容器 + 重启进程
+   ```bash
+   docker cp backend/app/services/story_state.py marionette-api:/app/app/services/story_state.py
+   docker cp backend/tests/test_story_state.py    marionette-api:/app/tests/test_story_state.py
+   docker restart marionette-api          # uvicorn 是 PID 1，只能重启容器
+   ```
+   ⚠️ **重启容器后 `docker cp` 的东西还在**（重启 ≠ 重建），但 `docker compose up -d --force-recreate` 会**抹掉**这些改动 —— 回到镜像里的旧代码。
+
+2. **正式验证/交付**：`docker compose build api && docker compose up -d api`（慢，但结果可信）
+
+**教训**
+
+> 容器里"跑通了"必须能回答一个问题：**跑的是我刚写的那份代码吗？**
+> 挂载目录一旦不覆盖源码路径，`docker exec` 的验证就只是一个**看起来很像验证**的动作。
+
+**首次踩到**：S15-1 建议持久化。当时 `476 passed` 与改动前完全相同，靠「新增用例数对不上」才发现。

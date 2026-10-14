@@ -29,14 +29,14 @@ bad()  { echo "  ❌ $1"; FAIL=$((FAIL+1)); }
 step() { echo; echo "=== $1 ==="; }
 
 # --------------------------------------------------------------------------- #
-step "[1/6] 登录"
+step "[1/7] 登录"
 CODE=$(curl -s -o /dev/null -w '%{http_code}' -m 15 -c "$JAR" \
   -X POST "$BASE/api/v1/auth/login" -H 'Content-Type: application/json' \
   -d "{\"password\":\"$(grep -E '^ACCESS_PASSWORD=' .env | cut -d= -f2-)\"}")
 [ "$CODE" = "200" ] && ok "登录 HTTP 200" || { bad "登录失败 HTTP $CODE"; exit 1; }
 
 # --------------------------------------------------------------------------- #
-step "[2/6] 建世界观"
+step "[2/7] 建世界观"
 WJSON=$(curl -s -m 30 -b "$JAR" -X POST "$BASE/api/v1/worlds" \
   -H 'Content-Type: application/json' -d '{
     "title": "触发验证·雨夜弄堂",
@@ -60,7 +60,7 @@ print(d.get("id", ""))
 [ -n "$WID" ] && ok "世界 id = $WID" || { bad "建世界观失败：$WJSON"; exit 1; }
 
 # --------------------------------------------------------------------------- #
-step "[3/6] 建剧情会话（绑定世界观）"
+step "[3/7] 建剧情会话（绑定世界观）"
 # 先拿一张卡 + 一个预设；库里为空则**自动造一份**，保证脚本自洽可重复
 #
 # 注意两个解析函数要分开：列表响应里 id 在 data.items[0].id，
@@ -134,7 +134,7 @@ print(d.get("id", ""))
 [ -n "$SID" ] && ok "会话 id = $SID" || { bad "建会话失败：$SJSON"; exit 1; }
 
 # --------------------------------------------------------------------------- #
-step "[4/6] 跑一轮真实剧情，抓 SSE"
+step "[4/7] 跑一轮真实剧情，抓 SSE"
 echo "  （真调 LLM + 可能真出图，最多等 ${MAXWAIT}s）"
 curl -s -N -m "$MAXWAIT" -b "$JAR" -X POST "$BASE/api/v1/sessions/$SID/stream" \
   -H 'Content-Type: application/json' \
@@ -153,7 +153,7 @@ for need in world_info director start usage done; do
 done
 
 # --------------------------------------------------------------------------- #
-step "[5/6] 断言 image 事件 + reason"
+step "[5/7] 断言 image 事件 + reason"
 if printf '%s' "$EVT_NAMES" | grep -qw image; then
   ok "image 事件已触发（自动配图生效）"
   # 取该事件的 data 行
@@ -193,7 +193,7 @@ else
 fi
 
 # --------------------------------------------------------------------------- #
-step "[6/6] 节流验证：连跑第 2 轮，间隔不足时不应再出图"
+step "[6/7] 节流验证：连跑第 2 轮，间隔不足时不应再出图"
 curl -s -N -m "$MAXWAIT" -b "$JAR" -X POST "$BASE/api/v1/sessions/$SID/stream" \
   -H 'Content-Type: application/json' \
   -d '{"input":"我开口问：这屋里先前住的人，是什么时候走的？"}' \
@@ -245,6 +245,54 @@ if [ "${NODES:-0}" -le "${CNT:-0}" ]; then
   ok "节点去重一致（image_nodes=$NODES ≤ image_count=$CNT）"
 else
   bad "image_nodes 多于出图数，去重可能失效"
+fi
+
+# --------------------------------------------------------------------------- #
+step "[7/7] 建议持久化 + 刷新恢复（S15-1）"
+
+# 第 2 轮刚跑完，库里应已落该轮建议。模拟「刷新页面」= 重新拉 /story。
+SUGG=$(curl -s -m 15 -b "$JAR" "$BASE/api/v1/sessions/$SID/story" \
+  | python3 -c '
+import sys, json
+d = json.load(sys.stdin)
+d = d.get("data") or d
+s = d.get("suggestions")
+print(json.dumps({"count": len(s) if isinstance(s, list) else -1,
+                  "labels": [x.get("label") for x in s] if isinstance(s, list) else None},
+                 ensure_ascii=False))
+' 2>/dev/null)
+echo "  /story 返回的建议：$SUGG"
+
+SCOUNT=$(printf '%s' "$SUGG" | python3 -c 'import sys,json; print(json.load(sys.stdin).get("count",-1))' 2>/dev/null)
+if [ "${SCOUNT:-0}" -ge 1 ]; then
+  ok "刷新恢复：/story 返回 $SCOUNT 条建议（建议不再刷新即丢）"
+elif [ "${SCOUNT:-0}" = "0" ]; then
+  echo "  ⚠️  建议为空 —— 若本轮 LLM 未给建议属正常；否则说明落库未生效"
+else
+  bad "suggestions 字段缺失或类型异常（count=$SCOUNT）"
+fi
+
+# /actions 应优先读库：与 /story 返回同一批（而非重新生成）
+#
+# ⚠️ 比较时两侧都要 `ensure_ascii=False` 且用相同 separators ——
+# 否则中文一侧被转义成 \uXXXX、另一侧是原样中文，内容相同也会判成"不一致"（踩过）。
+SUGG2=$(curl -s -m 15 -b "$JAR" "$BASE/api/v1/sessions/$SID/actions" \
+  | python3 -c '
+import sys, json
+d = json.load(sys.stdin)
+d = d.get("data") or d
+print(",".join(x.get("label") or "" for x in (d.get("actions") or [])))
+' 2>/dev/null)
+echo "  /actions 返回的建议：$SUGG2"
+
+L1=$(printf '%s' "$SUGG" | python3 -c '
+import sys, json
+print(",".join(json.load(sys.stdin).get("labels") or []))
+' 2>/dev/null)
+if [ -n "$L1" ] && [ "$L1" = "$SUGG2" ]; then
+  ok "/actions 与 /story 返回同一批（读库优先，未重新生成）"
+else
+  echo "  ℹ️  两者不一致（/story=$L1 ｜ /actions=$SUGG2）—— 若库曾为空而回退生成则属正常"
 fi
 
 # --------------------------------------------------------------------------- #

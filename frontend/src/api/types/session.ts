@@ -161,6 +161,8 @@ export interface StorySnapshot {
   scene: SceneStory;
   cast: CastMember[];
   relations: Relation[];
+  /** 上一轮落库的行动建议（S15-1）。老会话可能缺省 → 视作空数组。 */
+  suggestions?: ActionSuggestion[];
 }
 
 export interface Session {

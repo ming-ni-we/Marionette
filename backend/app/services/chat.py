@@ -518,7 +518,7 @@ class ChatSvc:
 
             # ---- actions 事件（行动建议；失败静默，不影响 done）----
             suggestions = await self._suggest_actions(
-                session_row, said=said, overrides=overrides
+                session_row, said=said, overrides=overrides, turn=turn
             )
             if suggestions:
                 yield EVT_ACTIONS, {"actions": suggestions}
@@ -754,9 +754,21 @@ class ChatSvc:
         return [*assembled.messages, ChatMessage(role="system", content="\n".join(lines))]
 
     async def _suggest_actions(
-        self, session_row: Any, *, said: list[dict[str, Any]], overrides: dict[str, Any] | None
+        self,
+        session_row: Any,
+        *,
+        said: list[dict[str, Any]],
+        overrides: dict[str, Any] | None,
+        turn: int | None = None,
     ) -> list[dict[str, Any]]:
-        """生成行动建议；任何失败都静默返回空列表（前端自动隐藏建议区）。"""
+        """生成行动建议；任何失败都静默返回空列表（前端自动隐藏建议区）。
+
+        成功后**落库**（S15-1）：建议原本只活在 SSE 瞬态里，刷新即丢 ——
+        玩家重开历史会话看到的永远是空建议区。写进 `state_machine.story.suggestions`
+        后，`GET /sessions/{id}/story` 可把上一次的建议还给前端。
+
+        落库失败同样静默（建议是锦上添花，不能拖垮整轮对话）。
+        """
         try:
             recent: list[dict[str, Any]] = []
             for msg in (await self._sessions.list_messages(session_row.id))[-6:]:
@@ -770,7 +782,7 @@ class ChatSvc:
                         "name": meta.get("speaker_name") or "",
                     }
                 )
-            return await self._suggester.suggest(
+            suggestions = await self._suggester.suggest(
                 scene=self._story_state.get_scene_story(session_row),
                 story=self._story_state.get_story(session_row),
                 cast=self._story_state.get_cast(session_row),
@@ -780,6 +792,13 @@ class ChatSvc:
         except Exception as exc:  # noqa: BLE001 —— 建议失败不影响对话
             logger.warning("action suggest failed: %s", type(exc).__name__)
             return []
+
+        try:
+            self._story_state.set_suggestions(session_row, suggestions, turn=turn)
+            await self._db.flush()
+        except Exception as exc:  # noqa: BLE001 —— 落库失败不影响对话
+            logger.warning("action suggest persist failed: %s", type(exc).__name__)
+        return suggestions
 
     async def _maybe_image_events(
         self,

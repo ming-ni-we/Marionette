@@ -94,13 +94,15 @@ export function StoryRuntimePage() {
     }
   }, [session, setMessages, setWorldInfoHits, setUsage, setError, setState]);
 
-  // 快照回来 → 回填剧情态（在场角色 / 关系），供角色头稳定配色
+  // 快照回来 → 回填剧情态（在场角色 / 关系 / 上一轮建议），供角色头稳定配色与芯片区恢复
   useEffect(() => {
     if (!snapshot) return;
     setStorySnapshot({
       story: snapshot.story,
       relations: snapshot.relations,
       cast: snapshot.cast,
+      // S15-1：刷新/重开会话时恢复建议，不让玩家面对空输入框
+      suggestions: snapshot.suggestions,
     });
   }, [snapshot, setStorySnapshot]);
 

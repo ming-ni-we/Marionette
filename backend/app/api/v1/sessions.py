@@ -223,9 +223,9 @@ async def get_last_context(db: DbSession, sessionId: str) -> Envelope[ContextSna
     summary="获取剧情状态（刷新恢复用）",
 )
 async def get_story_state(db: DbSession, sessionId: str) -> Envelope[dict]:
-    """返回 `state_machine.story` + `scene` + 固化 cast/relations。
+    """返回 `state_machine.story` + `scene` + 固化 cast/relations + 上一轮行动建议。
 
-    供前端刷新页面后恢复「幕·拍点 / 在场角色 / 关系图」，无需重放全部消息。
+    供前端刷新页面后恢复「幕·拍点 / 在场角色 / 关系图 / 行动建议」，无需重放全部消息。
     1v1 会话调用此端点返回空默认值（不报错），前端据此判断模式。
     """
     row = await SessionSvc(db).get_row(sessionId)
@@ -239,6 +239,8 @@ async def get_story_state(db: DbSession, sessionId: str) -> Envelope[dict]:
             "scene": state.get_scene_story(row),
             "cast": state.get_cast(row),
             "relations": state.get_relations(row),
+            # S15-1：上一轮落库的行动建议。老会话无此键 → 空列表，前端自然隐藏建议区。
+            "suggestions": state.get_suggestions(row),
         }
     )
 
@@ -246,12 +248,19 @@ async def get_story_state(db: DbSession, sessionId: str) -> Envelope[dict]:
 @router.get(
     "/sessions/{sessionId}/actions",
     response_model=Envelope[dict],
-    summary="补拉行动建议（SSE 尾帧丢失兜底）",
+    summary="补拉行动建议（默认读库，库空才回退重算）",
 )
 async def get_actions(db: DbSession, sessionId: str) -> Envelope[dict]:
     """补拉本轮行动建议。
 
-    SSE 的 `actions` 帧可能因网络抖动丢失；前端可在 `done` 后按需补拉一次。
+    两种用途：
+      1. SSE 的 `actions` 帧因网络抖动丢失 → 前端 `done` 后补拉一次
+      2. 重开历史会话 → 首屏恢复上次的建议
+
+    **默认读库**（S15-1 落库的 `suggestions`），命中即返回 —— 这既省一次 LLM 调用，
+    又保证「补拉结果与流式当时看到的一致」（早期实现每次实时重跑 LLM，同一轮补拉
+    两次会拿到不同建议）。仅当库里确实为空时才回退实时生成。
+
     1v1 会话返回空列表（不报错）。
     """
     svc = SessionSvc(db)
@@ -259,6 +268,10 @@ async def get_actions(db: DbSession, sessionId: str) -> Envelope[dict]:
     state = StoryStateSvc(db)
     if not is_story_session(row):
         return Envelope(data={"actions": []})
+
+    cached = state.get_suggestions(row)
+    if cached:
+        return Envelope(data={"actions": cached})
 
     messages = await svc.list_messages(row.id)
     recent: list[dict[str, Any]] = []

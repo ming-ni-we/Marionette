@@ -595,6 +595,59 @@ class TestNodeAndActions:
         assert _first(events, "actions")["actions"] == actions
 
     @pytest.mark.asyncio
+    async def test_actions_persisted_to_session(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """建议必须落库（S15-1）—— 否则刷新即丢，重开历史会话建议区永远是空的。"""
+        from app.services.chat import ChatSvc
+
+        row = await _make_story_session(db, card_and_preset)
+        chat = ChatSvc(db)
+        monkeypatch.setattr(chat, "_router", _FakeStreamRouter([["给你三个选择。"]]))
+        monkeypatch.setattr(
+            chat, "_director", _FakeDirectorSvc([{"speakers": [{"id": "su_wan"}]}])
+        )
+        actions = [
+            {"id": "a0", "label": "问他账册", "hint": "施压", "tone": "speak"},
+            {"id": "a1", "label": "看看窗外", "hint": "观察", "tone": "observe"},
+        ]
+        monkeypatch.setattr(chat, "_suggester", _FakeSuggesterSvc(actions))
+
+        await _drain(chat, str(row.id))
+
+        await db.refresh(row)
+        assert [a["id"] for a in StoryStateSvc.get_suggestions(row)] == ["a0", "a1"]
+        # 落库时要带上轮次，前端可据此判断建议是否与当前进度同步
+        assert StoryStateSvc.get_story(row)["suggestions_turn"] is not None
+
+    @pytest.mark.asyncio
+    async def test_empty_actions_clears_persisted(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """本轮没建议 → 库里的旧建议要被清掉，不能残留过期方向。
+
+        （前端首屏就是读这个字段恢复芯片区的，残留 = 玩家看到上一轮的方向。）
+        """
+        from app.services.chat import ChatSvc
+
+        row = await _make_story_session(db, card_and_preset)
+        StoryStateSvc(db).set_suggestions(row, [{"id": "old", "label": "上一轮的方向"}], turn=0)
+        await db.flush()
+
+        chat = ChatSvc(db)
+        monkeypatch.setattr(chat, "_router", _FakeStreamRouter([["平平一轮。"]]))
+        monkeypatch.setattr(
+            chat, "_director", _FakeDirectorSvc([{"speakers": [{"id": "su_wan"}]}])
+        )
+        monkeypatch.setattr(chat, "_suggester", _FakeSuggesterSvc([]))
+
+        events = await _drain(chat, str(row.id))
+
+        assert "actions" not in _names(events)
+        await db.refresh(row)
+        assert StoryStateSvc.get_suggestions(row) == []
+
+    @pytest.mark.asyncio
     async def test_suggester_error_yields_no_actions_but_done(
         self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -1133,3 +1186,106 @@ class TestExplicitImageRequest:
 
         assert seen, "显式请求必须走到 _maybe_image_events"
         assert _first(events, "image") == {"asset_id": "manual-1", "reason": "manual"}
+
+
+# --------------------------------------------------------------------------- #
+# 建议持久化的 API 面（S15-1）
+# --------------------------------------------------------------------------- #
+class TestSuggestionsApi:
+    """守住「刷新/重开会话能看到建议」这条端到端验收。
+
+    后端落库（TestNodeAndActions 已覆盖）只是半边；真正决定玩家是否看到的是
+    这两个端点的返回。老会话（无 suggestions 键）也必须安全返回空列表 ——
+    否则重开历史会话会 500，比空建议区更糟。
+    """
+
+    @pytest.mark.asyncio
+    async def test_story_endpoint_returns_persisted_suggestions(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from app.api.v1.sessions import get_actions, get_story_state
+        from app.services.chat import ChatSvc
+
+        row = await _make_story_session(db, card_and_preset)
+        chat = ChatSvc(db)
+        monkeypatch.setattr(chat, "_router", _FakeStreamRouter([["给你三个选择。"]]))
+        monkeypatch.setattr(
+            chat, "_director", _FakeDirectorSvc([{"speakers": [{"id": "su_wan"}]}])
+        )
+        actions = [
+            {"id": "a0", "label": "问他账册", "hint": "施压", "tone": "speak"},
+            {"id": "a1", "label": "看看窗外", "hint": "观察", "tone": "observe"},
+        ]
+        monkeypatch.setattr(chat, "_suggester", _FakeSuggesterSvc(actions))
+        await _drain(chat, str(row.id))
+
+        # 新开一个 session 读，模拟「刷新页面」——确保不是内存里的残留
+        await db.commit()
+        snap = await get_story_state(db, str(row.id))
+        assert snap.data["suggestions"] == actions
+
+        # /actions 应直接读库（不再重算），返回同一批
+        got = await get_actions(db, str(row.id))
+        assert got.data["actions"] == actions
+
+    @pytest.mark.asyncio
+    async def test_story_endpoint_old_session_returns_empty(
+        self, db: AsyncSession, card_and_preset: tuple
+    ) -> None:
+        """老会话（从未落过建议）→ 空列表，不报错。"""
+        from app.api.v1.sessions import get_story_state
+
+        row = await _make_story_session(db, card_and_preset)
+        snap = await get_story_state(db, str(row.id))
+        assert snap.data["suggestions"] == []
+
+    @pytest.mark.asyncio
+    async def test_actions_endpoint_prefers_cache_over_llm(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """库里有建议时，/actions **不得**再调 LLM。
+
+        早期实现每次实时重跑：同一轮补拉两次会拿到不同建议，且白烧一次调用。
+        """
+        from app.api.v1.sessions import get_actions
+
+        row = await _make_story_session(db, card_and_preset)
+        StoryStateSvc(db).set_suggestions(row, [{"id": "cached", "label": "库里的方向"}], turn=1)
+        await db.flush()
+
+        calls: list[Any] = []
+
+        class _BoomSuggester:
+            def __init__(self, *_a: Any, **_kw: Any) -> None: ...
+            async def suggest(self, **kwargs: Any) -> list[dict[str, Any]]:
+                calls.append(kwargs)
+                raise AssertionError("库里有建议时不该调 LLM")
+
+        monkeypatch.setattr("app.api.v1.sessions.ActionSuggesterSvc", _BoomSuggester)
+
+        got = await get_actions(db, str(row.id))
+        assert got.data["actions"] == [{"id": "cached", "label": "库里的方向"}]
+        assert calls == []
+
+    @pytest.mark.asyncio
+    async def test_actions_endpoint_falls_back_when_cache_empty(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """库里为空 → 回退实时生成（保留 SSE 尾帧丢失的兜底能力）。"""
+        from app.api.v1.sessions import get_actions
+
+        row = await _make_story_session(db, card_and_preset)
+
+        calls: list[Any] = []
+
+        class _StubSuggester:
+            def __init__(self, *_a: Any, **_kw: Any) -> None: ...
+            async def suggest(self, **kwargs: Any) -> list[dict[str, Any]]:
+                calls.append(kwargs)
+                return [{"id": "fresh", "label": "现算的"}]
+
+        monkeypatch.setattr("app.api.v1.sessions.ActionSuggesterSvc", _StubSuggester)
+
+        got = await get_actions(db, str(row.id))
+        assert got.data["actions"] == [{"id": "fresh", "label": "现算的"}]
+        assert len(calls) == 1

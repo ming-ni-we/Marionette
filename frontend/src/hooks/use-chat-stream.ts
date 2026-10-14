@@ -68,7 +68,13 @@ export interface ChatStream {
   setActiveSpeaker: React.Dispatch<React.SetStateAction<ActiveSpeaker | null>>;
   /** 外部把 /story 快照灌进来（首次进页面时用） */
   setStorySnapshot: (
-    snap: { story?: StoryState; relations?: Relation[]; cast?: CastMember[] } | null,
+    snap: {
+      story?: StoryState;
+      relations?: Relation[];
+      cast?: CastMember[];
+      /** 上一轮落库的行动建议（S15-1）—— 刷新/重开会话时恢复芯片区 */
+      suggestions?: ActionSuggestion[];
+    } | null,
   ) => void;
   /**
    * 发送一轮输入。
@@ -398,11 +404,20 @@ export function useChatStream({ sessionId, offline, storyMode = false }: UseChat
     [startStream],
   );
 
-  /** 把 GET /sessions/{id}/story 的快照灌进剧情态（首屏回填在场角色/关系）。 */
+  /** 把 GET /sessions/{id}/story 的快照灌进剧情态（首屏回填在场角色/关系/建议）。 */
   const setStorySnapshot = useCallback(
-    (snap: { story?: StoryState; relations?: Relation[]; cast?: CastMember[] } | null) => {
+    (snap: {
+      story?: StoryState;
+      relations?: Relation[];
+      cast?: CastMember[];
+      suggestions?: ActionSuggestion[];
+    } | null) => {
       if (!snap) return;
       if (snap.cast) setSpeakers(snap.cast);
+      // S15-1：恢复上一轮建议。此前建议只活在 SSE 瞬态里，刷新即丢 ——
+      // 玩家重开历史会话看到的永远是空建议区。这里只在快照**带上**该字段时回填，
+      // 避免老会话（无此键）把原本已有的建议清空。
+      if (snap.suggestions) setSuggestions(snap.suggestions);
     },
     [],
   );

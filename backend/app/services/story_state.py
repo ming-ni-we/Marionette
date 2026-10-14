@@ -43,6 +43,11 @@ DEFAULT_STORY: dict[str, Any] = {
     "last_image_turn": None,  # 上次出图的轮次（最小间隔用）
     "image_nodes": [],  # 已配图的节点 id（去重：同一节点只画一次）
     "image_cast": [],  # 已配图的角色 id（去重：同一角色只画一次）
+    # ---- 行动建议（S15-1）----
+    # 每轮生成后落库，刷新/重开会话可恢复。**只存最近一轮**（数组整体替换），
+    # 不做历史累积：建议是「此刻该做什么」的即时提示，攒旧建议只会干扰玩家。
+    "suggestions": [],
+    "suggestions_turn": None,  # 建议对应的轮次（前端可判断是否与当前进度同步）
 }
 
 #: `scene` 新增键的默认值（`location/time/mood/summary` 由旧字段复用）
@@ -140,6 +145,28 @@ class StoryStateSvc:
     def get_present(row: Any) -> list[str]:
         """在场角色 id 列表（字符串化，剔除空值）。"""
         return [str(x) for x in StoryStateSvc.get_scene_story(row)["present"] if str(x or "")]
+
+    @staticmethod
+    def get_suggestions(row: Any) -> list[dict[str, Any]]:
+        """取上一轮落库的行动建议（S15-1）。
+
+        老会话行没有这个键 —— 返回空列表，前端建议区自然隐藏，不报错。
+        只保留 dict 元素（LLM 偶发吐出的裸字符串会污染前端渲染）。
+        """
+        raw = StoryStateSvc.get_story(row).get("suggestions")
+        if not isinstance(raw, list):
+            return []
+        return copy.deepcopy([s for s in raw if isinstance(s, dict)])
+
+    def set_suggestions(self, row: Any, suggestions: list[dict[str, Any]], *, turn: int | None = None) -> None:
+        """把本轮建议写进 `state_machine.story`（S15-1）。
+
+        **整体替换而非追加**：建议只对"当前这一刻"有意义，攒历史会让芯片区越堆越乱。
+        空列表也要写入 —— 否则上一轮的建议会残留在库里，玩家重新打开会话会看到
+        早已过期的方向。
+        """
+        cleaned = [s for s in (suggestions or []) if isinstance(s, dict)]
+        self.set_story(row, {"suggestions": cleaned, "suggestions_turn": turn})
 
     @staticmethod
     def extract_world_id(row: Any) -> str | None:
