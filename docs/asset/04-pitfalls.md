@@ -542,6 +542,104 @@ assert params["max_tokens"] >= 1024        # 只锁「留够头room」这个意�
 
 ---
 
+### D13. ⚠️ 出图触发同步调用链里的「任性取值」：脏数据直接崩掉整轮回复
+
+**现象**（2026-10-14 手工验证时撞到）：
+`decide_image(node_triggered="n1")` 抛
+`AttributeError: 'str' object has no attribute 'get'`。
+
+**根因**：代码假设 `node_triggered` 恒为 `{"id","title","brief"} | None`
+（导演契约确实如此），但该字段最终由 **LLM 的 JSON** 驱动，模型偶尔直接吐
+一个字符串 id 而不是对象。而 `decide_image` 是在 **对话主流里同步调用**的——
+它一崩，整轮回复就失败。
+
+**为什么危险**：出图是**附属功能**。附属功能不该有能力杀死主流程。
+这类「取值比契约更乐观」的写法在接入 LLM 输出的任何地方都容易复现。
+
+**修法**：加 `_as_node()` 宽容化 —— dict 原样返回；非空字符串当 `{"id": ...}`；
+其余（数字/数组/None）一律视为「无节点信号」。并补 5 条参数化守卫测试
+（`TestDirtyNodeTriggered`），其中 `test_non_dict_non_str_does_not_crash`
+用 `pytest.mark.parametrize` 覆盖 `123 / 4.5 / ["n1"] / {"nested":"x"} / object()`。
+
+> **教训（可迁移）**：
+> 1. **凡是从 LLM 输出解析来的字段，消费端一律按 `Any` 处理**，不要按契约写。
+> 2. **判断「谁在调用我」**：同步调用链上的函数，宽容度必须拉满。
+> 3. 宽容化要**保持语义单调**：字符串 `"n1"` 与对象 `{"id":"n1"}` 必须共用
+>    同一套去重键，否则同一节点会因形态不同而重复出图。
+
+---
+
+### D14. ⚠️ 本地 mock 服务的分支判定用了自然语言词 → 静默发错响应
+
+**现象**：用本地 mock LLM 跑端到端时，导演事件永远 `degraded: true`，
+`reason: "导演输出无法解析为 JSON"`，`node_triggered` 恒为 `null`
+→ **自动出图永远拿不到信号**。
+
+**根因**：mock 按 prompt 关键词分派响应，最初把「行动建议」分支
+（`if "行动" in blob or "建议" in blob`）排在导演之前。而 `_DIRECTOR_SYSTEM`
+的正文里恰好有「决定本轮由哪些角色**登场说话/行动**」——导演调用被误判成
+行动建议，收到一个 JSON **数组**，自然解析不成导演对象。
+
+**为什么难查**：mock 返回 HTTP 200、JSON 也合法，**没有任何报错**。
+唯一线索是 director 事件的 `degraded` 字段和一条 WARNING 日志。
+「静默发错」比「报错」难查一个数量级。
+
+**修法**：改用**最独特的字段名**判定，而非自然语言词：
+
+```python
+if "negative_prompt" in blob and "aspect" in blob:  # 扩写
+if "node_triggered" in blob or "relation_updates" in blob:  # 导演
+if "actions" in blob:  # 行动建议
+```
+
+并在代码里留注释说明**分支顺序不能调换**及背后的原因。
+
+> **教训（可迁移）**：
+> 1. **判定条件要用「标识符」而不是「自然语言」**。自然语言词会互相渗透，
+>    标识符（字段名）不会。
+> 2. **mock/stub 的行为必须显式断言**，别假设它按你想象的分派——
+>    先单独 curl 三种请求确认分支，再接进主流程。
+> 3. **静默发错响应**是 mock 最危险的失败模式：HTTP 200 + 合法 JSON，
+>    调用方只能靠业务字段（`degraded`）才发现不对。
+
+---
+
+### D15. ⚠️ 单测会真的去调外部付费 API —— `.env` 被测试读到了
+
+**现象**：跑全量单测时 `test_story_chat.py` 从 0.1s 劣化到 **24s**，
+日志里出现 `image prompt complete failed (json_format=True/False)` ——
+说明测试**真的在往火山发请求**。
+
+**根因**：本机 `.env` 里设了 `STORY_IMAGE_ENABLED=true`（为端到端验证加的），
+而 `get_settings()` 走 `pydantic-settings` 会读 `.env`。于是每条走
+`ChatSvc.stream_reply` 的用例都可能触发出图。
+
+**双重危害**：
+1. **烧钱**——CI 上跑一遍就是真金白银；
+2. **不稳定**——用例依赖外网，网抖就红，且失败时会重试（json_format 两级），
+   单条用例耗时放大 240 倍。
+
+**修法**：`conftest.py` 加 autouse 夹具，全局把开关置 False：
+
+```python
+@pytest_asyncio.fixture(autouse=True)
+def _disable_story_image_by_default(monkeypatch):
+    from app.core.config import get_settings
+    monkeypatch.setattr(get_settings(), "story_image_enabled", False, raising=False)
+```
+
+需要测自动触发的用例显式覆盖（`test_story_chat.py::TestStoryImageEvents`）。
+
+> **教训（可迁移）**：
+> 1. **任何「花钱或有网络副作用」的功能，测试里必须默认关闭**，
+>    且要用 `autouse` 保证「忘记关」也不会出事。
+> 2. **`pydantic-settings` 会让单测读到本地 `.env`**——这是「本地能跑、
+>    CI 行为不同」的常见根源。凡是有副作用的配置项，都值得加一道测试隔离。
+> 3. **测试耗时的异常放大是强信号**。0.1s → 24s 不是「机器慢」，
+>    是「它真的出门了」。
+
+---
+
 ## E. 前端工程
 
 | # | 坑 | 根因 | 修法 |

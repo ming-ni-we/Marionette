@@ -80,11 +80,11 @@ PIP_TRUSTED_HOST=mirror.sjtu.edu.cn
 
 ---
 
-## 2.5 触发时机实现（2026-10-14 本轮核心）
+### 2.5 触发时机实现（2026-10-14 本轮核心）
 
 **决策**（经用户确认）：触发策略 = **节点 + 新角色**；提示词 = **额外调一次 LLM 扩写**（模板兜底）；范围 = **后端触发 + 单测**。
 
-### 新增 `backend/app/services/image_trigger.py`（约 520 行）
+#### 新增 `backend/app/services/image_trigger.py`（约 520 行）
 
 **两个纯函数 + 一个服务类**，全部不依赖 DB / 网络，可离线单测：
 
@@ -95,7 +95,7 @@ PIP_TRUSTED_HOST=mirror.sjtu.edu.cn
 | `next_story_state(...)` | 出图成功后回写记账 | 配额 / 轮次 / 节点去重 / 角色去重 |
 | `ImageTriggerSvc` | 编排 `decide` + `render_prompt` | `render_prompt` 返回 `source` = `"llm"` / `"template"` |
 
-### 判定顺序（**先节流后信号** —— 关键设计）
+#### 判定顺序（**先节流后信号** —— 关键设计）
 
 ```
 ① 开关关闭      → SKIP_DISABLED
@@ -109,7 +109,7 @@ PIP_TRUSTED_HOST=mirror.sjtu.edu.cn
 > 顺序不能反：若先判信号再判节流，会在「节点触发但间隔不足」时留下歧义 reason，
 > 前端无法区分「这轮本来就不该画」和「这轮想画但被节流了」。
 
-### 提示词构造（LLM 扩写 + 模板兜底）
+#### 提示词构造（LLM 扩写 + 模板兜底）
 
 `_PROMPT_SYSTEM` 硬约束（防出「故事板」而非「画面」）：
 
@@ -127,7 +127,7 @@ PIP_TRUSTED_HOST=mirror.sjtu.edu.cn
 
 默认负面提示词：`文字, 水印, 签名, 乱码字符, 畸变, 多余手指, 低分辨率`
 
-### 接入 `chat.py`
+#### 接入 `chat.py`
 
 新增 `_story_image_events()`（约 90 行），两条路径：
 
@@ -139,7 +139,7 @@ PIP_TRUSTED_HOST=mirror.sjtu.edu.cn
 
 SSE `image` 事件新增 `reason` 字段，前端可据此区分「节点图 / 角色图 / 手动图」。
 
-### 新增配置（`config.py` + `story_state.py` + `docker-compose.yml`）
+#### 新增配置（`config.py` + `story_state.py` + `docker-compose.yml`）
 
 ```python
 # .env
@@ -151,7 +151,7 @@ STORY_IMAGE_MIN_GAP=2
 `DEFAULT_STORY` 新增 4 个记账字段：`image_count` / `last_image_turn` /
 `image_nodes` / `image_cast`。
 
-### 测试
+#### 测试
 
 `backend/tests/test_image_trigger.py` —— **39 条**，6 个类：
 
@@ -167,6 +167,56 @@ STORY_IMAGE_MIN_GAP=2
 
 其中 `test_dirty_gap_value_does_not_crash` 是**脏数据守卫**：`story` 里出现
 `image_count: "bad"` 这类脏值时不得抛异常，由 `_as_int()` 宽容取整兜底。
+
+### 2.6 端到端真实验证（2026-10-14，✅ 15 PASS / 0 FAIL）
+
+**脚本**：`scripts/verify-story-image-trigger.sh`（可重复执行）
+
+**实测事件序列**：
+```
+world_info → director → start → speaker_switch → delta×6
+          → node → usage → image → actions → done
+```
+
+| 验证项 | 证据 |
+|---|---|
+| image 事件触发 | `reason=node`（节点触发，最强信号） |
+| 真实出图 + 归档 | `asset_id=51347e88-...`，145059 字节，合法 JPEG（`ffd8ffe0`） |
+| 记账正确 | `image_count=1, last_image_turn=0, image_nodes=["n_ledger"]` |
+| 间隔节流 | 第 2 轮 `gap=1 < min_gap=2` → 正确未重复出图 |
+| 节点去重 | `image_nodes=1 ≤ image_count=1` |
+
+**记账位置**：`state_machine.story`（**不是** `extensions.story` ——
+后者只放 cast/relations 的固化副本，两者容易搞混）。
+
+### 2.7 本地 mock LLM 服务（`scripts/mock_llm_server.py`）
+
+**为什么需要**：火山账号这个 Key 只开通了**图像模型**，文本模型试了 10 个
+主流名全部 `ModelNotOpen` / `NotFound`。但本轮要验的是**接线代码**，
+不该被「别人的账号开通状态」阻塞。
+
+**它是什么**：OpenAI 兼容的本地 HTTP 服务。流式返回剧情文本；非流式按
+system prompt 的**独特字段名**返回三种 JSON（导演 / 行动建议 / 提示词扩写）。
+
+**价值**：零成本、可重复、结果确定，且真实走过
+`FastAPI → ChatSvc → SSE` 全链路 —— 验的是**我写的代码**。
+
+**用法**：
+```bash
+docker cp scripts/mock_llm_server.py marionette-api:/app/
+docker exec -d marionette-api python /app/mock_llm_server.py 8899
+curl -X PUT http://127.0.0.1/api/v1/config/llm \
+  -H 'Content-Type: application/json' \
+  -d '{"base_url":"http://127.0.0.1:8899/v1","api_key":"mock","model":"mock-story"}'
+```
+
+> ⚠️ **分支判定必须用标识符（`node_triggered` / `actions` / `negative_prompt`），
+> 不能用自然语言词**。`_DIRECTOR_SYSTEM` 正文里含「行动」二字，最初把行动建议
+> 分支排在前面 → 导演收到数组 → 解析失败降级 → `node_triggered` 恒 null →
+> 自动出图永远没信号。**静默发错响应**（HTTP 200 + 合法 JSON）比报错难查得多。
+> 详见 [`04-pitfalls.md`](./04-pitfalls.md) §D14。
+
+
 
 ---
 
@@ -185,7 +235,22 @@ STORY_IMAGE_MIN_GAP=2
 > 仍有用的提醒：建议在[费用中心](https://console.volcengine.com/finance)
 > 设**推理限额**，避免额度用尽后静默转付费。
 
-### 3.2 触发时机 —— ✅ 已实现（见 §2.5）
+### 3.2 触发时机 —— ✅ 已实现 + 已验证（见 §2.5 / §2.6）
+
+### 3.2b LLM 环境（**待用户处理**）
+
+火山账号当前这个 Key **只开通了图像模型**，文本模型试了 10 个主流名
+（doubao-seed-1-6 / 1-8 / 2-0、doubao-pro、kimi-k2、deepseek-v3 等）
+全部 `InvalidEndpointOrModel.NotFound`。
+
+**影响**：剧情对话本身跑不起来（导演 / 角色演出 / 行动建议都依赖 LLM）。
+但**不影响本轮交付**——出图触发逻辑已用本地 mock LLM 完成端到端验证，
+且**LLM 扩容失败时会自动回落到模板拼接**（`source=template`），配图不会因此断掉。
+
+**要做的**（三选一）：
+1. 在[方舟控制台 · 开通管理](https://console.volcengine.com/ark/region:ark+cn-beijing/openManagement)开通一个文本模型（免费额度通常够用），然后把 `LLM_BASE_URL` / `LLM_MODEL` / `LLM_API_KEY` 写进 `.env`
+2. 换用别家 OpenAI 兼容的 Key（DeepSeek / 通义 / Kimi 等）
+3. 继续用 `scripts/mock_llm_server.py` 做本地开发与回归
 
 ### 3.3 前端展示（**未开始，本轮明确不做**）
 
@@ -245,3 +310,4 @@ print(s.story_image_enabled, s.story_image_quota, s.story_image_min_gap)"
 |---|---|
 | 2026-10-14 | 出图链路端到端跑通；修复水印 + MIME 两处缺陷；新增 13 条回归守卫；构建加速 51min→1min |
 | 2026-10-14 | 账户充值复测三模型全绿；**实现触发时机**（`image_trigger.py` 520 行 + 39 条单测）；接入 `chat.py`；补 compose 透传；加速源固化进 compose |
+| 2026-10-14 | **端到端真实验证通过（15 PASS / 0 FAIL）**：`image` 事件触发、`reason=node`、真实出图归档 145KB JPEG、记账正确、间隔节流生效。新增 `mock_llm_server.py`；修 5 处脚本契约错误；修 `_as_node()` 脏数据崩溃；修单测外呼付费 API；沉淀 3 条坑（§D13–D15） |
