@@ -38,6 +38,7 @@ export const emptyCardData = (): CardData => ({
   post_history_instructions: '',
   alternate_greetings: [],
   tags: [],
+  art_style: '',
   creator: '',
   character_version: '1.0',
   character_book: null,

@@ -110,6 +110,39 @@ async def _make_story_session(db: AsyncSession, card_and_preset: tuple) -> Any:
     return row
 
 
+async def _bind_fire_ninja_world(db: AsyncSession, row: Any, chat: Any) -> Any:
+    """给会话建一个带「火影忍者」tag 的世界观并绑定，返回该 World 行。
+
+    用于画风链路测试：`World.tags` 是顶层 ARRAY 列，是 `art_style` 推断的
+    **唯一**依据，所以必须真的落一行 World，而不是往 `extensions` 里塞。
+    """
+    from app.models.world import World
+
+    world = World(
+        # `owner_id` 是 NOT NULL，`server_default="local"` 只在 DB 层生效，
+        # ORM 直接 INSERT 时不带该列会被判 NULL —— 必须显式给值。
+        owner_id="local",
+        title="木叶 · 雾中之刃",
+        spec="rpg_world",
+        spec_version="1.0",
+        setting={"era": "疾风传中期", "tone": "紧张、克制", "summary": "忍者任务"},
+        tags=["火影忍者", "同人", "二次元", "任务推进"],
+        cast=[],
+        relations=[],
+        outline={},
+        opening="",
+        factions=[],
+        extensions={},
+    )
+    db.add(world)
+    await db.flush()
+
+    # 会话级绑定：extensions.story.world_id 是 `extract_world_id` 的首选
+    StoryStateSvc(db).bind_world(row, world_id=str(world.id), cast=STORY_CAST, relations=STORY_RELATIONS)
+    await db.flush()
+    return world
+
+
 async def _drain(chat: Any, sid: str, text: str = "我把账册拍在桌上。") -> list[tuple[str, dict]]:
     events: list[tuple[str, dict[str, Any]]] = []
     async for event, data in chat.stream_reply(sid, input_text=text):
@@ -1200,6 +1233,68 @@ class TestStoryImageEvents:
 
         refreshed = await chat._sessions.get_message(row.id, str(target.id))
         assert (refreshed.meta or {}).get("image_asset_id") == "asset-first"
+
+    @pytest.mark.asyncio
+    async def test_world_art_style_reaches_render_prompt(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """画风链路守卫：世界观 tags → 推断 → 传进 `render_prompt`。
+
+        **回归守卫（用户实测反馈）**：修复前 `STYLE_SUFFIX` 是写死的无差别追加，
+        所以火影忍者和惊悚悬疑轻小说出图长得一样。修复后 chat 必须把解析出的
+        画风（`world_style` / `character_style`）透传给出图提示词构造器。
+
+        本用例盯着三件容易漏接的事：
+          1. `_load_world` 要带出 `tags`（它是 World 的顶层列，**不在 setting 里**）
+          2. `_story_image_events` 要接收 `world` / `card`
+          3. `render_prompt` 真的收到了解析结果（而不是 None）
+        """
+        trigger = _FakeImageTrigger(should=True)
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=trigger,
+            hook=_FakeImageHook(),
+        )
+
+        # 夹具默认不绑世界观（world_id=None），这里补一个带火影 tag 的，
+        # 让链路真正走一遍「world → tags → 推断 → render_prompt」。
+        world = await _bind_fire_ninja_world(db, row, chat)
+        if world is None:
+            pytest.skip("无法为夹具绑定世界观")
+
+        await _drain(chat, str(row.id))
+
+        assert trigger.render_calls, "触发命中时必须调用 render_prompt"
+        kwargs = trigger.render_calls[0]
+        assert kwargs.get("world_style"), "world_style 不能是空 —— 否则又退回无画风"
+        assert "动画" in kwargs["world_style"], (
+            f"火影世界观应推断出动画风，实际拿到：{kwargs.get('world_style')!r}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_load_world_exposes_tags(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """`_load_world` 必须带出 `tags` —— 画风推断的唯一依据。
+
+        `World.tags` 是顶层 ARRAY 列（**不是** `setting` 里的键），
+        所以若 `_load_world` 忘了带，`art_style` 就永远推断不出东西，
+        整个画风特性会静默退化成全局兜底串。
+        """
+        row, chat = await self._prep(
+            db, card_and_preset, monkeypatch,
+            enabled=False, trigger=_FakeImageTrigger(should=False), hook=_FakeImageHook(),
+        )
+        world = await _bind_fire_ninja_world(db, row, chat)
+        if world is None:
+            pytest.skip("无法为夹具绑定世界观")
+
+        loaded = await chat._load_world(row)
+        assert "tags" in loaded
+        assert "火影忍者" in loaded["tags"]
 
     @pytest.mark.asyncio
     async def test_empty_prompt_skips_generation(

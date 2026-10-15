@@ -65,6 +65,20 @@ export function WorldSettingPanel({
             placeholder="例如：旧城区即将拆迁，各方势力都想在最后一个月里拿走属于自己的东西。"
           />
         </Field>
+
+        <Field
+          label="画面风格"
+          htmlFor="world-art-style"
+          optional
+          hint="配图用的整体画风。留空则按下方「标签」自动推断（如含「二次元」→ 日式动画风，「悬疑」→ 写实电影感）。"
+        >
+          <Input
+            id="world-art-style"
+            value={setting.art_style ?? ''}
+            onChange={(e) => onChange({ art_style: e.target.value })}
+            placeholder="例如：日式动画赛璐璐风格，明快高饱和配色"
+          />
+        </Field>
       </GroupSection>
 
       <GroupSection

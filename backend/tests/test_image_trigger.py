@@ -285,9 +285,7 @@ class TestNextStoryState:
 
     def test_manual_reason_only_counts(self) -> None:
         """手动出图不记节点/角色（玩家点的不应消耗自动触发的去重名额）。"""
-        patch = next_story_state(
-            story=_story(), turn=3, reason="manual", seed={"node_id": "n_x"}
-        )
+        patch = next_story_state(story=_story(), turn=3, reason="manual", seed={"node_id": "n_x"})
         assert patch["image_count"] == 1
         assert "image_nodes" not in patch
 
@@ -297,9 +295,7 @@ class TestNextStoryState:
 # --------------------------------------------------------------------------- #
 class TestTemplatePrompt:
     def test_includes_scene_fields_and_style(self) -> None:
-        prompt, negative, aspect = build_template_prompt(
-            scene=SCENE, story=_story(), cast=CAST
-        )
+        prompt, negative, aspect = build_template_prompt(scene=SCENE, story=_story(), cast=CAST)
         assert "雨夜的青石板巷" in prompt
         assert "压抑" in prompt
         assert "灯笼在风里晃" in prompt
@@ -442,9 +438,7 @@ async def test_use_llm_false_skips_router() -> None:
     """显式关掉 LLM 扩写时，不应调用 router。"""
     router = _FakeRouter(['{"prompt": "不该被用到"}'])
     svc = ImageTriggerSvc(router=router)
-    _, _, _, source = await svc.render_prompt(
-        scene=SCENE, story=_story(), cast=CAST, use_llm=False
-    )
+    _, _, _, source = await svc.render_prompt(scene=SCENE, story=_story(), cast=CAST, use_llm=False)
     assert source == "template"
     assert router.calls == []
 
@@ -463,6 +457,107 @@ async def test_prompt_includes_node_reason() -> None:
     text = "\n".join(m.content for m in router.calls[0])
     assert "匕首现形" in text
     assert "沈砚亮出匕首" in text
+
+
+# --------------------------------------------------------------------------- #
+# 5.1 画风注入（修复「所有世界观出图风格雷同」）
+# --------------------------------------------------------------------------- #
+class TestStyleInjection:
+    """画风注入的两条路径必须**都**生效，且注入方式不同。
+
+    背景（用户实测反馈）：`STYLE_SUFFIX` 曾是无差别追加的固定串，导致
+    火影忍者（该出日式动画赛璐璐）和惊悚悬疑轻小说出图长得一模一样。
+    现在画风由 `art_style.resolve_art_style` 解析后传入本模块。
+
+    两条路径的差异是**刻意的**：
+      - **LLM 路径**：画风拼进 system prompt 让模型**遵守**（模型得先知道画风，
+        才能写出自洽的画面描述 —— 动画风该写「明快高饱和」而非「胶片颗粒」）。
+      - **模板路径**：没有 LLM 可遵守，把画风接在描述尾部（保持原行为）。
+    """
+
+    # ---- 模板路径 ----
+
+    def test_custom_style_overrides_suffix(self) -> None:
+        """传了 style → 用它，且**不再**出现兜底串（否则两个画风词打架）。"""
+        prompt, _, _ = build_template_prompt(
+            scene=SCENE, story=_story(), cast=CAST, style="日式动画赛璐璐风格"
+        )
+        assert "日式动画赛璐璐风格" in prompt
+        assert STYLE_SUFFIX not in prompt
+
+    def test_none_style_falls_back_to_suffix(self) -> None:
+        """不传 style → 回退兜底串（向后兼容，老调用方行为不变）。"""
+        prompt, _, _ = build_template_prompt(scene=SCENE, story=_story(), cast=CAST)
+        assert STYLE_SUFFIX in prompt
+
+    def test_blank_style_falls_back_to_suffix(self) -> None:
+        """传了空白 style 也当没传 —— 绝不能拼出「，  」这种尾部。"""
+        prompt, _, _ = build_template_prompt(scene=SCENE, story=_story(), cast=CAST, style="   ")
+        assert STYLE_SUFFIX in prompt
+
+    # ---- LLM 路径 ----
+
+    @pytest.mark.asyncio
+    async def test_llm_messages_include_style_blocks(self) -> None:
+        """画风与角色外观要喂给扩写模型，且分在**两个带标题的区块**里。
+
+        分区块是刻意的：`"日式动画赛璐璐，银白长发男子"` 连在一起，
+        模型会把「银白长发」也当画风词。中文区块标题零成本完成语义隔离。
+        """
+        router = _FakeRouter(['{"prompt": "雨夜长巷"}'])
+        svc = ImageTriggerSvc(router=router)
+        await svc.render_prompt(
+            scene=SCENE,
+            story=_story(),
+            cast=CAST,
+            world_style="日式动画赛璐璐风格",
+            character_style="银白长发，黑色立领制服",
+        )
+        text = "\n".join(m.content for m in router.calls[0])
+        assert "【画面风格】" in text
+        assert "日式动画赛璐璐风格" in text
+        assert "【角色外观】" in text
+        assert "银白长发，黑色立领制服" in text
+
+    @pytest.mark.asyncio
+    async def test_llm_no_empty_style_blocks_when_none(self) -> None:
+        """不传画风 → **不插入空区块**（空标题只会干扰模型，不如没有）。
+
+        注意不能直接断言「文本里没有 【画面风格】」—— `_PROMPT_SYSTEM`
+        本身就提到这四个字（它要求模型遵守该区块）。要按住**区块**判：
+        区块的形态是「标题独占一行 + 紧跟内容」，用 `startswith` 逐块检查。
+        """
+        router = _FakeRouter(['{"prompt": "雨夜长巷"}'])
+        svc = ImageTriggerSvc(router=router)
+        await svc.render_prompt(scene=SCENE, story=_story(), cast=CAST)
+        blocks = "\n\n".join(m.content for m in router.calls[0]).split("\n\n")
+        assert not [b for b in blocks if b.startswith("【画面风格】")]
+        assert not [b for b in blocks if b.startswith("【角色外观】")]
+
+    @pytest.mark.asyncio
+    async def test_template_keeps_custom_style_after_degrade(self) -> None:
+        """LLM 扩写失败降级到模板时，自定义画风**仍然生效**。
+
+        否则会出现「模型抽风 + 画风也丢了」的双重退化。
+        """
+        router = _FakeRouter(["不是 JSON", "还是不是 JSON"])
+        svc = ImageTriggerSvc(router=router)
+        prompt, _, _, source = await svc.render_prompt(
+            scene=SCENE, story=_story(), cast=CAST, world_style="国风水墨淡彩"
+        )
+        assert source == "template"
+        assert "国风水墨淡彩" in prompt
+
+    def test_system_prompt_no_longer_forbids_style(self) -> None:
+        """`_PROMPT_SYSTEM` 的铁律必须已改写。
+
+        原文是「风格词已由系统追加，**不要再写画风**」—— 在画风可变的现在
+        这条指令是错的：模型需要**按给定画风**写自洽的描述。
+        """
+        from app.services.image_trigger import _PROMPT_SYSTEM
+
+        assert "【画面风格】" in _PROMPT_SYSTEM
+        assert "不要再写画风" not in _PROMPT_SYSTEM
 
 
 # --------------------------------------------------------------------------- #

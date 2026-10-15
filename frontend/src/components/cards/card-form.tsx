@@ -125,6 +125,20 @@ export function CardForm({ draft, onChange, mode }: CardFormProps) {
               className="min-h-20"
             />
           </Field>
+
+          <Field
+            label="角色外观"
+            htmlFor="card-art-style"
+            optional
+            hint="配图时该角色的长相特征（发色、服饰、气质）。会和世界观的整体画风叠加，不是覆盖。"
+          >
+            <Input
+              id="card-art-style"
+              value={draft.art_style}
+              onChange={(e) => onChange({ art_style: e.target.value })}
+              placeholder="例如：齐肩短发，米色针织衫，说话时习惯低头"
+            />
+          </Field>
         </GroupSection>
       </div>
 

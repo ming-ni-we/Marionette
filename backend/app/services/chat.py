@@ -38,6 +38,7 @@ from app.models.card import Card
 from app.models.preset import Preset
 from app.models.worldbook import WorldBook
 from app.services.action_suggester import ActionSuggesterSvc
+from app.services.art_style import resolve_art_style
 from app.services.context_assembler import ContextAssembler
 from app.services.director import DirectorSvc
 from app.services.image_hook import ImageHook
@@ -118,8 +119,10 @@ class ChatSvc:
             worldbooks.append(embedded)
         if wb_ids:
             rows = (
-                await self._db.execute(select(WorldBook).where(WorldBook.id.in_(wb_ids)))
-            ).scalars().all()
+                (await self._db.execute(select(WorldBook).where(WorldBook.id.in_(wb_ids))))
+                .scalars()
+                .all()
+            )
             worldbooks.extend([dict(r.data or {}) for r in rows])
         return dict(card.data or {}), dict(preset.data or {}), worldbooks
 
@@ -172,7 +175,9 @@ class ChatSvc:
             # 落玩家输入（regenerate 时不重复落输入）
             if not regenerate_message_id:
                 await self._sessions.append_message(
-                    session_row.id, role="user", content=input_text,
+                    session_row.id,
+                    role="user",
+                    content=input_text,
                     token_count=estimate_tokens(input_text),
                 )
             history = [
@@ -193,18 +198,21 @@ class ChatSvc:
             )
 
             # ---- world_info 事件 ----
-            yield EVT_WORLD_INFO, {
-                "triggered": [
-                    {
-                        "entry_id": d.get("entry_id"),
-                        "match_type": d.get("match_type"),
-                        "in_budget": bool(d.get("in_budget")),
-                    }
-                    for d in assembled.world_info_trace
-                    if d.get("matched")
-                ],
-                "trace_id": str(uuid.uuid4()),
-            }
+            yield (
+                EVT_WORLD_INFO,
+                {
+                    "triggered": [
+                        {
+                            "entry_id": d.get("entry_id"),
+                            "match_type": d.get("match_type"),
+                            "in_budget": bool(d.get("in_budget")),
+                        }
+                        for d in assembled.world_info_trace
+                        if d.get("matched")
+                    ],
+                    "trace_id": str(uuid.uuid4()),
+                },
+            )
 
             # ---- 落 assistant 占位（streaming）----
             assistant_row = await self._sessions.append_message(
@@ -222,13 +230,16 @@ class ChatSvc:
             await self._db.flush()
 
             # ---- start 事件 ----
-            yield EVT_START, {
-                "message_id": str(assistant_row.id),
-                "estimated_prompt_tokens": assembled.estimated_prompt_tokens,
-            }
+            yield (
+                EVT_START,
+                {
+                    "message_id": str(assistant_row.id),
+                    "estimated_prompt_tokens": assembled.estimated_prompt_tokens,
+                },
+            )
 
             # ---- 流式 delta ----
-            sampling = (preset.get("sampling") or {})
+            sampling = preset.get("sampling") or {}
             params = {
                 "temperature": sampling.get("temperature"),
                 "top_p": sampling.get("top_p"),
@@ -265,10 +276,13 @@ class ChatSvc:
             sm["turn"] = int(sm.get("turn", 0)) + 1
             session_row.state_machine = sm
 
-            yield EVT_USAGE, {
-                "prompt_tokens": _round_tokens(assembled.estimated_prompt_tokens),
-                "completion_tokens": completion_tokens,
-            }
+            yield (
+                EVT_USAGE,
+                {
+                    "prompt_tokens": _round_tokens(assembled.estimated_prompt_tokens),
+                    "completion_tokens": completion_tokens,
+                },
+            )
 
             # ---- image 事件（F12 出图钩子）----
             # 出图请求可由 overrides.image 显式触发；失败不中断对话流（仅记录告警）。
@@ -295,10 +309,13 @@ class ChatSvc:
                 raise
             else:
                 logger.warning("chat stream failed: %s", type(exc).__name__)
-                yield EVT_ERROR, {
-                    "code": 5021,
-                    "message": f"生成失败（{type(exc).__name__}）：请重试或检查后端配置。",
-                }
+                yield (
+                    EVT_ERROR,
+                    {
+                        "code": 5021,
+                        "message": f"生成失败（{type(exc).__name__}）：请重试或检查后端配置。",
+                    },
+                )
 
     # ------------------------------------------------------------------ #
     # 剧情模式：多角色导演管线（S6）
@@ -380,20 +397,24 @@ class ChatSvc:
                 history=history,
                 worldbooks=worldbooks,
                 memory=dict(session_row.memory or {}),
-                scan_text=input_text or "\n".join(str(m.get("content") or "") for m in history[-4:]),
+                scan_text=input_text
+                or "\n".join(str(m.get("content") or "") for m in history[-4:]),
             )
-            yield EVT_WORLD_INFO, {
-                "triggered": [
-                    {
-                        "entry_id": d.get("entry_id"),
-                        "match_type": d.get("match_type"),
-                        "in_budget": bool(d.get("in_budget")),
-                    }
-                    for d in assembled.world_info_trace
-                    if d.get("matched")
-                ],
-                "trace_id": str(uuid.uuid4()),
-            }
+            yield (
+                EVT_WORLD_INFO,
+                {
+                    "triggered": [
+                        {
+                            "entry_id": d.get("entry_id"),
+                            "match_type": d.get("match_type"),
+                            "in_budget": bool(d.get("in_budget")),
+                        }
+                        for d in assembled.world_info_trace
+                        if d.get("matched")
+                    ],
+                    "trace_id": str(uuid.uuid4()),
+                },
+            )
 
             # ---- director 事件（先发，让前端立刻渲染裁决面板）----
             yield EVT_DIRECTOR, decision.to_payload()
@@ -406,10 +427,13 @@ class ChatSvc:
             # 这样「N 个说话者 = N 条消息」，不会多出一条空占位（历史 bug）。
             # start 的 message_id 允许为空串：前端在收到首个 `speaker_switch`/`delta`
             # 时拿到真实 id；1v1 契约里该字段总是有值，剧情模式放宽为可空。
-            yield EVT_START, {
-                "message_id": "",
-                "estimated_prompt_tokens": assembled.estimated_prompt_tokens,
-            }
+            yield (
+                EVT_START,
+                {
+                    "message_id": "",
+                    "estimated_prompt_tokens": assembled.estimated_prompt_tokens,
+                },
+            )
 
             self._sessions.transition_state(session_row, "generating")
             session_row.context = assembled.to_snapshot()
@@ -426,12 +450,15 @@ class ChatSvc:
                     meta=self._narration_meta(turn),
                 )
                 assistant_rows.append(narration_row)
-                yield EVT_SPEAKER_SWITCH, {
-                    "speaker_id": None,
-                    "speaker_name": "",
-                    "is_narration": True,
-                    "message_id": str(narration_row.id),
-                }
+                yield (
+                    EVT_SPEAKER_SWITCH,
+                    {
+                        "speaker_id": None,
+                        "speaker_name": "",
+                        "is_narration": True,
+                        "message_id": str(narration_row.id),
+                    },
+                )
 
             # ---- 逐角色演出 ----
             usage_prompt = assembled.estimated_prompt_tokens
@@ -439,11 +466,14 @@ class ChatSvc:
             said: list[dict[str, Any]] = []
             for index, speaker in enumerate(speakers):
                 if index > 0:
-                    yield EVT_SPEAKER_SWITCH, {
-                        "speaker_id": speaker.get("id"),
-                        "speaker_name": speaker.get("name"),
-                        "is_narration": False,
-                    }
+                    yield (
+                        EVT_SPEAKER_SWITCH,
+                        {
+                            "speaker_id": speaker.get("id"),
+                            "speaker_name": speaker.get("name"),
+                            "is_narration": False,
+                        },
+                    )
                 row = await self._append_speaker_placeholder(
                     session_row, speaker=speaker, turn=turn, decision=decision
                 )
@@ -482,11 +512,14 @@ class ChatSvc:
                     session_row,
                     {"node_id": decision.node_triggered.get("id"), "pending_node": None},
                 )
-                yield EVT_NODE, {
-                    "id": decision.node_triggered.get("id"),
-                    "title": decision.node_triggered.get("title"),
-                    "brief": decision.node_triggered.get("brief"),
-                }
+                yield (
+                    EVT_NODE,
+                    {
+                        "id": decision.node_triggered.get("id"),
+                        "title": decision.node_triggered.get("title"),
+                        "brief": decision.node_triggered.get("brief"),
+                    },
+                )
 
             # ---- 收尾：状态回 idle + 推进轮次与拍点 ----
             self._sessions.transition_state(session_row, "post_processing")
@@ -497,10 +530,13 @@ class ChatSvc:
             self._story_state.bump_turn(session_row)
             await self._db.flush()
 
-            yield EVT_USAGE, {
-                "prompt_tokens": _round_tokens(usage_prompt),
-                "completion_tokens": usage_completion,
-            }
+            yield (
+                EVT_USAGE,
+                {
+                    "prompt_tokens": _round_tokens(usage_prompt),
+                    "completion_tokens": usage_completion,
+                },
+            )
 
             # ---- image 事件（S16 §4.6.3：自动触发 + 显式请求）----
             # 优先级：显式 overrides.image > 自动触发（节点 / 新角色）。
@@ -514,6 +550,9 @@ class ChatSvc:
                     turn=turn,
                     cast=cast,
                     said=said,
+                    # 画风数据源：世界观（整体画风 + tags 推断）与角色卡（角色外观）
+                    world=world,
+                    card=card,
                 ):
                     yield evt
 
@@ -524,11 +563,14 @@ class ChatSvc:
             if suggestions:
                 yield EVT_ACTIONS, {"actions": suggestions}
 
-            yield EVT_DONE, {
-                "message_id": str(assistant_rows[-1].id) if assistant_rows else "",
-                "status": "complete",
-                "turn": turn + 1,
-            }
+            yield (
+                EVT_DONE,
+                {
+                    "message_id": str(assistant_rows[-1].id) if assistant_rows else "",
+                    "status": "complete",
+                    "turn": turn + 1,
+                },
+            )
 
         except BaseException as exc:  # noqa: BLE001 —— 需覆盖 CancelledError/GeneratorExit
             await self._finalize_incomplete(
@@ -547,10 +589,13 @@ class ChatSvc:
                 raise
             else:
                 logger.warning("story stream failed: %s", type(exc).__name__)
-                yield EVT_ERROR, {
-                    "code": 5021,
-                    "message": f"生成失败（{type(exc).__name__}）：请重试或检查后端配置。",
-                }
+                yield (
+                    EVT_ERROR,
+                    {
+                        "code": 5021,
+                        "message": f"生成失败（{type(exc).__name__}）：请重试或检查后端配置。",
+                    },
+                )
 
     # ------------------------------------------------------------------ #
     # 剧情模式辅助
@@ -579,6 +624,9 @@ class ChatSvc:
             "setting": dict(row.setting or {}),
             "outline": dict(row.outline or {}),
             "opening": row.opening or "",
+            # tags 用于出图画风的题材推断（见 `art_style.infer_style_from_tags`）。
+            # 它是 World 的顶层 ARRAY 列，**不在 setting 里**，必须单独带出。
+            "tags": list(row.tags or []),
         }
 
     async def _story_history(self, session_row: Any) -> list[dict[str, Any]]:
@@ -605,7 +653,9 @@ class ChatSvc:
             )
         return history
 
-    def _pick_fallback_speaker(self, session_row: Any, scene: dict[str, Any]) -> dict[str, Any] | None:
+    def _pick_fallback_speaker(
+        self, session_row: Any, scene: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """导演降级时让它继续说话的角色：上一说话者的下一位（环形轮转）。"""
         present = scene.get("present") or []
         if not present:
@@ -670,7 +720,9 @@ class ChatSvc:
         )
 
     @staticmethod
-    def _speaker_meta(*, speaker: dict[str, Any] | None, turn: int, decision: Any) -> dict[str, Any]:
+    def _speaker_meta(
+        *, speaker: dict[str, Any] | None, turn: int, decision: Any
+    ) -> dict[str, Any]:
         return {
             "speaker_id": (speaker or {}).get("id"),
             "speaker_name": (speaker or {}).get("name") or None,
@@ -826,9 +878,7 @@ class ChatSvc:
         if not prompt:
             return
         params = {
-            k: spec[k]
-            for k in ("negative_prompt", "width", "height", "seed", "steps")
-            if k in spec
+            k: spec[k] for k in ("negative_prompt", "width", "height", "seed", "steps") if k in spec
         }
         try:
             job = await self._image.generate_and_archive(
@@ -845,12 +895,15 @@ class ChatSvc:
             # 关联持久化（S16-8）：挂到本轮最后一条 assistant 消息的 meta，
             # 让刷新回读时图片还在原位。写库**必须先于 yield**。
             await self._link_image_to_message(assistant_row, job.asset_id)
-            yield EVT_IMAGE, {
-                "asset_id": str(job.asset_id),
-                "job_id": str(job.id),
-                "reason": REASON_MANUAL,
-                "message_id": str(assistant_row.id),
-            }
+            yield (
+                EVT_IMAGE,
+                {
+                    "asset_id": str(job.asset_id),
+                    "job_id": str(job.id),
+                    "reason": REASON_MANUAL,
+                    "message_id": str(assistant_row.id),
+                },
+            )
 
     async def _story_image_events(
         self,
@@ -862,6 +915,8 @@ class ChatSvc:
         turn: int,
         cast: list[dict[str, Any]],
         said: list[dict[str, Any]],
+        world: dict[str, Any] | None = None,
+        card: dict[str, Any] | None = None,
     ) -> AsyncIterator[tuple[str, dict[str, Any]]]:
         """剧情模式的出图事件（S16 §4.6.3）。
 
@@ -906,6 +961,13 @@ class ChatSvc:
             return
 
         try:
+            # 画风解析（纯函数，绝不抛）：世界观整体画风 + 角色卡外观。
+            # 优先级：world.setting.art_style > world.tags 推断 > 全局兜底。
+            world_style, character_style = resolve_art_style(
+                world_setting=(world or {}).get("setting"),
+                world_tags=(world or {}).get("tags"),
+                card_data=card,
+            )
             prompt, negative, aspect, source = await self._image_trigger.render_prompt(
                 scene=self._story_state.get_scene_story(session_row),
                 story=story,
@@ -913,6 +975,8 @@ class ChatSvc:
                 said=said,
                 seed=trigger.seed,
                 overrides=overrides,
+                world_style=world_style,
+                character_style=character_style,
             )
             if not prompt:
                 return
@@ -939,9 +1003,7 @@ class ChatSvc:
         # 出图成功后才记账：配额 / 间隔 / 去重（失败不占额度）
         self._story_state.set_story(
             session_row,
-            next_story_state(
-                story=story, turn=turn, reason=trigger.reason, seed=trigger.seed
-            ),
+            next_story_state(story=story, turn=turn, reason=trigger.reason, seed=trigger.seed),
         )
         logger.info(
             "story image generated",
@@ -952,12 +1014,15 @@ class ChatSvc:
                 "turn": turn,
             },
         )
-        yield EVT_IMAGE, {
-            "asset_id": str(job.asset_id),
-            "job_id": str(job.id),
-            "reason": trigger.reason,
-            "message_id": str(assistant_row.id),
-        }
+        yield (
+            EVT_IMAGE,
+            {
+                "asset_id": str(job.asset_id),
+                "job_id": str(job.id),
+                "reason": trigger.reason,
+                "message_id": str(assistant_row.id),
+            },
+        )
 
     async def _link_image_to_message(self, assistant_row: Any, asset_id: Any) -> None:
         """把配图挂到消息的 `meta.image_asset_id`（S16-8 关联持久化）。

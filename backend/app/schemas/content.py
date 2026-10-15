@@ -85,6 +85,9 @@ class CardData(BaseModel):
     post_history_instructions: str = ""
     alternate_greetings: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
+    # 角色外观：该角色的长相/气质特征，供配图使用。
+    # 与世界观的 `setting.art_style`（整体画风）**叠加**，不是覆盖。
+    art_style: str = ""
     creator: str = ""
     character_version: str = ""
     character_book: WorldBookData | None = None

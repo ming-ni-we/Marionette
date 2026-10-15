@@ -60,7 +60,17 @@ _PROMPT_PARAMS: dict[str, Any] = {"temperature": 0.7, "max_tokens": 400}
 #: response_format（端点不支持时降级重试）
 _JSON_FORMAT: dict[str, Any] = {"type": "json_object"}
 
-#: 固定画风后缀 —— 保证同一局内视觉一致，这是「不出现角色名」之外的兜底手段
+#: 全局兜底画风 —— **不再是唯一画风**。
+#:
+#: 历史教训（用户实测反馈）：这一串曾被**无差别**追加到所有世界观，导致
+#: 火影忍者（该出日式动画赛璐璐）和惊悚悬疑轻小说（该出写实电影感）的出图
+#: 长得一模一样。现在实际画风由 `art_style.resolve_art_style` 按
+#: 「世界观 setting.art_style > world.tags 推断 > 本常量」解析。
+#:
+#: 保留本常量（而非删掉改引 `art_style.FALLBACK_STYLE`）的原因：
+#:   1. `__all__` 与既有测试都在 import 它，删了是破坏性变更；
+#:   2. 它仍是「解析不出来时」的最终答案，语义未变。
+#: 注意与 `art_style.FALLBACK_STYLE` **保持字面一致**。
 STYLE_SUFFIX = "写实电影感，冷色调，胶片颗粒，柔和自然光"
 
 _PROMPT_SYSTEM = """你是一台文字冒险游戏的「场景画师」，负责把当前剧情转译成一句**中文画面描述**。
@@ -75,7 +85,12 @@ _PROMPT_SYSTEM = """你是一台文字冒险游戏的「场景画师」，负责
 - 只写**一个镜头**。不要写「然后」「接着」「随后」这类时间推进。
 - 用**具体名词 + 具体光线**（「斑驳的木窗」「黄昏的侧逆光」），少用抽象形容词。
 - 不出现任何**文字/招牌/书页内容**（模型会把字画成乱码）。
-- 描述控制在 60-120 个汉字。风格词已由系统追加，**不要再写画风**。
+- 描述控制在 60-120 个汉字。
+- **画风由下方【画面风格】给出，必须严格遵守**：不要自行发明、不要改变画风，
+  你只负责把这个镜头的**具体内容**画出来。你的用词要与该画风自洽
+  （动画风就写「明快高饱和」，写实风才写「胶片颗粒」）。
+- 若下方还有【角色外观】，那是「这个人长什么样」，属于**画面内容**，
+  要如实体现；**不要把它误当成画风**。
 
 输出格式（严格遵循，单个 JSON 对象，不要 markdown 围栏）：
 {"prompt": "中文画面描述", "negative_prompt": "不要出现的元素", "aspect": "landscape|portrait|square"}
@@ -158,7 +173,9 @@ def decide_image(
     last_turn = story.get("last_image_turn")
     if last_turn is not None:
         prev = _as_int(last_turn, default=None)
-        if prev is not None and _as_int(turn, default=0) - prev < max(0, _as_int(min_gap, default=DEFAULT_MIN_GAP)):
+        if prev is not None and _as_int(turn, default=0) - prev < max(
+            0, _as_int(min_gap, default=DEFAULT_MIN_GAP)
+        ):
             return TriggerDecision(False, SKIP_GAP)
 
     # ---- 信号 1：剧情节点触发（最强）----
@@ -250,11 +267,15 @@ def build_template_prompt(
     cast: list[dict[str, Any]] | None,
     seed: dict[str, Any] | None = None,
     extra: list[str] | None = None,
+    style: str | None = None,
 ) -> tuple[str, str, str]:
     """无 LLM 时的模板拼接兜底。返回 `(prompt, negative_prompt, aspect)`。
 
     刻意做得**很朴素**：只是把已知的结构化字段拼起来。
     它的价值不是好看，而是「扩写失败时仍然能出一张图」。
+
+    `style`：整体画风（由 `art_style.resolve_art_style` 解析）。
+    为空时回退 `STYLE_SUFFIX` —— **保证「没有风格词」永不发生**。
     """
     seed = seed or {}
     parts: list[str] = []
@@ -279,7 +300,8 @@ def build_template_prompt(
             parts.append(voice)
 
     body = "，".join(p for p in parts if p) or "一个安静的室内场景"
-    prompt = f"{body}，{STYLE_SUFFIX}"
+    tail = str(style or "").strip() or STYLE_SUFFIX
+    prompt = f"{body}，{tail}"
     return prompt[:_PROMPT_MAX], _default_negative(), DEFAULT_ASPECT
 
 
@@ -345,11 +367,20 @@ def build_image_prompt(
     cast: list[dict[str, Any]] | None,
     said: list[dict[str, Any]] | None,
     seed: dict[str, Any] | None = None,
+    world_style: str | None = None,
+    character_style: str | None = None,
 ) -> list[ChatMessage]:
     """构造「扩写画面描述」的 messages（纯函数，可单测）。
 
     刻意只喂**少量**上下文（与 `action_suggester` 同思路）：
     画面描述取决于「此刻这个镜头」，全量历史只会推高成本并稀释场景。
+
+    `world_style` / `character_style`：由 `art_style.resolve_art_style` 解析出的
+    两段画风。**刻意放进两个带中文标题的独立区块**而非拼成一串 ——
+    `"日式动画赛璐璐，穿深灰长衫的男子"` 这样相连，模型会把「深灰长衫」
+    也当成画风词。分区块是零成本的语义隔离。
+
+    两者都可为空：为空时不插入该区块（**不留空标题**，否则反而干扰模型）。
     """
     seed = seed or {}
     present = [str(x) for x in (scene.get("present") or []) if str(x or "")]
@@ -366,6 +397,12 @@ def build_image_prompt(
         present_lines.append(f"- {name}（{cid}）" + (f"：{voice}" if voice else ""))
 
     blocks: list[str] = [_PROMPT_SYSTEM]
+
+    # ---- 整体画风（紧跟 system：模型读到的第一件事就是「用什么风格画」）----
+    ws = str(world_style or "").strip()
+    if ws:
+        blocks.append(f"【画面风格】\n{ws}")
+
     blocks.append(
         "【当前场景】\n"
         f"地点：{scene.get('location') or '未指定'}\n"
@@ -376,14 +413,17 @@ def build_image_prompt(
     if present_lines:
         blocks.append("【在场角色（用外观描述替代姓名）】\n" + "\n".join(present_lines))
 
+    # ---- 角色外观（独立区块，紧随在场角色：语义是「这人长什么样」，不是画风）----
+    cs = str(character_style or "").strip()
+    if cs:
+        blocks.append(f"【角色外观】\n{cs}")
+
     # 触发原因：让模型知道「为什么此刻值得画」
     node_title = str(seed.get("node_title") or "").strip()
     node_brief = str(seed.get("node_brief") or "").strip()
     if node_title or node_brief:
         blocks.append(
-            "【触发原因：剧情节点】\n"
-            + (f"{node_title}\n" if node_title else "")
-            + node_brief
+            "【触发原因：剧情节点】\n" + (f"{node_title}\n" if node_title else "") + node_brief
         )
     char = seed.get("character")
     if isinstance(char, dict):
@@ -403,9 +443,7 @@ def build_image_prompt(
             )
         )
 
-    blocks.append(
-        "现在输出这一镜的画面描述。记住：只写看得见的东西，不写角色姓名，不写情节推进。"
-    )
+    blocks.append("现在输出这一镜的画面描述。记住：只写看得见的东西，不写角色姓名，不写情节推进。")
 
     return [
         ChatMessage(role="system", content="\n\n".join(blocks)),
@@ -467,15 +505,30 @@ class ImageTriggerSvc:
         seed: dict[str, Any] | None = None,
         overrides: dict[str, Any] | None = None,
         use_llm: bool = True,
+        world_style: str | None = None,
+        character_style: str | None = None,
     ) -> tuple[str, str, str, str]:
         """产出 `(prompt, negative_prompt, aspect, source)`。
 
         `source` 为 `"llm"` 或 `"template"` —— 便于日志与测试断言走了哪条路。
         扩写失败**一定**退回模板，绝不让「出图」因为扩写失败而取消。
+
+        `world_style` / `character_style`：整体画风与角色外观（见 `art_style`）。
+        两条路径的注入方式不同，且**必须**不同：
+          - **LLM 路径**：拼进 system prompt 让模型**遵守**。模型得先知道画风，
+            才能写出自洽的画面描述（动画风该写「明快高饱和」而不是「胶片颗粒」）；
+            若改成「拿到输出后再追加到尾部」，描述会与画风互相打架。
+          - **模板路径**：没有 LLM 可遵守，只能把画风接在描述尾部 —— 保持原行为。
         """
         if use_llm:
             messages = build_image_prompt(
-                scene=scene, story=story, cast=cast, said=said, seed=seed
+                scene=scene,
+                story=story,
+                cast=cast,
+                said=said,
+                seed=seed,
+                world_style=world_style,
+                character_style=character_style,
             )
             raw = await self._try(messages, overrides=overrides, use_json_format=True)
             parsed = _extract_prompt_json(raw) if raw else None
@@ -489,7 +542,7 @@ class ImageTriggerSvc:
             logger.info("image prompt expander degraded -> template")
 
         prompt, negative, aspect = build_template_prompt(
-            scene=scene, story=story, cast=cast, seed=seed
+            scene=scene, story=story, cast=cast, seed=seed, style=world_style
         )
         return prompt, negative, aspect, "template"
 
@@ -514,7 +567,9 @@ class ImageTriggerSvc:
             return None
 
 
-def aspect_to_size(aspect: str, *, width: int | None = None, height: int | None = None) -> dict[str, int]:
+def aspect_to_size(
+    aspect: str, *, width: int | None = None, height: int | None = None
+) -> dict[str, int]:
     """把 aspect 折算成 `{width, height}`，显式传入的宽高优先。"""
     if width and height:
         return {"width": int(width), "height": int(height)}

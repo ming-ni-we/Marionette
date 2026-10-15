@@ -14,6 +14,11 @@ export interface CardData {
   post_history_instructions: string;
   alternate_greetings: string[];
   tags: string[];
+  /**
+   * 角色外观：该角色的长相/气质特征（发色、服饰、眼神…），供配图使用。
+   * 与世界观的 `setting.art_style`（整体画风）**叠加**，不是覆盖。
+   */
+  art_style: string;
   creator: string;
   character_version: string;
   character_book?: WorldBookData | null;

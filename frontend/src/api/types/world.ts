@@ -78,6 +78,11 @@ export interface WorldSetting {
   tone?: string;
   /** 一句话总览 */
   summary?: string;
+  /**
+   * 画面风格：配图用的**整体画风**（媒介 / 笔触 / 色调 / 光照）。
+   * 留空则按本世界观的 `tags` 自动推断（如含「二次元」「火影」→ 日式动画风）。
+   */
+  art_style?: string;
   [k: string]: unknown;
 }
 
@@ -115,7 +120,7 @@ export function emptyWorld(): WorldInput {
     spec: 'rpg_world',
     spec_version: '1.0',
     title: '',
-    setting: { era: '', locations: [], rules: [], tone: '', summary: '' },
+    setting: { era: '', locations: [], rules: [], tone: '', summary: '', art_style: '' },
     factions: [],
     cast: [],
     relations: [],

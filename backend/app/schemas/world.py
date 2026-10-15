@@ -94,6 +94,9 @@ class WorldSetting(BaseModel):
     rules: list[str] = Field(default_factory=list)  # 世界规则
     tone: str = ""  # 氛围基调
     summary: str = ""  # 一句话总览
+    # 画面风格：配图用的**整体画风**。留空则按世界观 tags 自动推断
+    # （见 `app.services.art_style.infer_style_from_tags`）。
+    art_style: str = ""
 
 
 # --------------------------------------------------------------------------- #
