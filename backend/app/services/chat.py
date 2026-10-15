@@ -980,6 +980,14 @@ class ChatSvc:
             )
             if not prompt:
                 return
+            # 关键补强：扩写模型只是「理解画风、写出自洽描述」，
+            # 但最终送进文生图模型的 prompt 若不含画风 token，
+            # Seedream 看到「雨夜对峙」这类描述仍会默认画成写实照片
+            # （实测翻过车）。所以把世界画风**再追加到最终 prompt 尾部**，
+            # 双保险：LLM 措辞自洽 + 文生图模型直接看到画风词。
+            # 角色外观不追加 —— 那是「人长什么样」，交给扩写模型融入描述。
+            if world_style and world_style not in prompt:
+                prompt = f"{prompt}，{world_style}"
             size = aspect_to_size(aspect)
             params: dict[str, Any] = {"negative_prompt": negative, **size}
             job = await self._image.generate_and_archive(

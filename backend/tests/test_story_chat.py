@@ -1275,6 +1275,39 @@ class TestStoryImageEvents:
         )
 
     @pytest.mark.asyncio
+    async def test_world_style_appended_to_final_prompt(
+        self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """最终送进文生图模型的 prompt 必须含画风 token。
+
+        **二段回归守卫（生产实测翻车）**：画风只进扩写模型的 system prompt
+        是不够的 —— 扩写产出「雨夜对峙」这种画面描述，Seedream 看到
+        「雨夜」仍会默认画成写实照片。画风串必须**再追加到最终 prompt 尾部**。
+        """
+        hook = _FakeImageHook()
+        row, chat = await self._prep(
+            db,
+            card_and_preset,
+            monkeypatch,
+            enabled=True,
+            trigger=_FakeImageTrigger(should=True),
+            hook=hook,
+        )
+        world = await _bind_fire_ninja_world(db, row, chat)
+        if world is None:
+            pytest.skip("无法为夹具绑定世界观")
+
+        await _drain(chat, str(row.id))
+
+        assert hook.calls, "触发命中时必须调用 generate_and_archive"
+        final_prompt = hook.calls[0]["prompt"]
+        assert "日式动画" in final_prompt, (
+            f"最终出图 prompt 必须含画风 token，实际：{final_prompt!r}"
+        )
+        # 原描述保留在前（画风是追加，不是替换）
+        assert "雨夜的弄堂" in final_prompt
+
+    @pytest.mark.asyncio
     async def test_load_world_exposes_tags(
         self, db: AsyncSession, card_and_preset: tuple, monkeypatch: pytest.MonkeyPatch
     ) -> None:
