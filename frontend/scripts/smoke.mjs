@@ -182,7 +182,7 @@ const ROUTES = [
   { path: '/presets/p1f0a1e2-0001-4c01-9b01-000000000001', expect: /日常向/ },
 ];
 
-const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList, probeStoryMultiTurn, probeSuggestionChip, probeSceneImage } = await import(
+const { mount, mockStream, mockWorldBookTest, SAMPLE_WORLDBOOKS, probeStoryRuntime, probeSessionList, probeStoryMultiTurn, probeSuggestionChip, probeSceneImage, probeAssetPreview } = await import(
   pathToFileURL(outfile).href
 );
 
@@ -300,6 +300,10 @@ const chip = await probeSuggestionChip();
 document.getElementById('root').innerHTML = '';
 const scene = await probeSceneImage();
 
+/* --------- 3.10) 素材库完整图预览（S16-FU：缩略图裁切 → 点开看全图）--------- */
+document.getElementById('root').innerHTML = '';
+const asset = await probeAssetPreview();
+
 /* --------------------------------- 4) 报告 -------------------------------- */
 console.error = origErr;
 let failed = 0;
@@ -388,8 +392,21 @@ if (!scene.ok) {
   if (!scene.closedByEsc) console.log('       ✗ 按 Esc 没有关闭灯箱');
 }
 
+/* ---- 3.10) 素材库完整图预览（S16-FU）---- */
+console.log(
+  `${asset.ok ? 'PASS' : 'FAIL'}  素材库完整图预览  卡片=${asset.cardCount} 查看入口=${asset.entryFound} 灯箱打开=${asset.openedDialog} 不裁切(contain)=${asset.contained} src含/assets/=${asset.srcOk} Esc关闭=${asset.closedByEsc}`,
+);
+if (!asset.ok) {
+  if (asset.cardCount < 1) console.log('       ✗ 素材库没有渲染出任何卡片');
+  if (!asset.entryFound) console.log('       ✗ 卡片上没有「查看 … 完整图片」入口');
+  if (!asset.openedDialog) console.log('       ✗ 点击缩略图没有打开灯箱');
+  if (!asset.contained) console.log('       ✗ 灯箱里的图不是 object-contain（仍然会裁切）');
+  if (!asset.srcOk) console.log('       ✗ 灯箱图片 src 未指向 /assets/ 内容端点');
+  if (!asset.closedByEsc) console.log('       ✗ 按 Esc 没有关闭灯箱');
+}
+
 const probeFailed =
-  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1) + (mt.ok ? 0 : 1) + (chip.ok ? 0 : 1) + (scene.ok ? 0 : 1);
+  (hit.ok ? 0 : 1) + (sse.ok ? 0 : 1) + (story.ok ? 0 : 1) + (slOk ? 0 : 1) + (mt.ok ? 0 : 1) + (chip.ok ? 0 : 1) + (scene.ok ? 0 : 1) + (asset.ok ? 0 : 1);
 console.log(
   failed === 0 && errors.length === 0 && probeFailed === 0
     ? '\n[结论] PASS'

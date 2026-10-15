@@ -20,12 +20,15 @@ import {
 import { Images, ImagePlus, Sparkles } from '@/components/icons';
 import { AssetCard } from '@/components/assets/asset-card';
 import { ArchiveGuide } from '@/components/assets/archive-guide';
+import { Lightbox } from '@/components/common/lightbox';
 import { useLibraryController, aggregateTags } from '@/hooks/use-library';
 
 export function AssetGalleryPage() {
   const lib = useLibraryController({ sort: 'created_at' });
   const [cardId, setCardId] = useState<string>('all');
   const [kind, setKind] = useState<AssetKind | 'all'>('all');
+  /** 灯箱中预览的素材（S16-FU）；null = 关闭 */
+  const [preview, setPreview] = useState<Asset | null>(null);
 
   const [assetsQ, cardsQ] = useQueries({
     queries: [
@@ -179,6 +182,7 @@ export function AssetGalleryPage() {
                   offline={offline}
                   ownerName={cardName(asset.card_id)}
                   onRemove={(a) => void remove(a)}
+                  onPreview={setPreview}
                 />
               ))}
             </ul>
@@ -187,6 +191,14 @@ export function AssetGalleryPage() {
 
         <ArchiveGuide />
       </div>
+
+      {/* 素材预览灯箱：缩略图是 `object-cover`（会裁切），这里给不裁切的完整图 */}
+      <Lightbox
+        open={preview !== null}
+        src={preview ? assetsApi.contentUrl(preview.id) : ''}
+        caption={preview?.filename ?? ''}
+        onClose={() => setPreview(null)}
+      />
     </div>
   );
 }

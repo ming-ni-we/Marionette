@@ -12,7 +12,7 @@ import { ActionDock } from '@/components/story/action-dock';
 import { DirectorPanel, DirectorCue } from '@/components/story/director-panel';
 import { NodeBanner } from '@/components/story/node-banner';
 import { StoryReadingColumn } from '@/components/story/story-reading-column';
-import { Lightbox } from '@/components/story/lightbox';
+import { Lightbox } from '@/components/common/lightbox';
 import { OfflineBanner } from '@/components/common/offline-banner';
 import { ErrorState } from '@/components/common/empty-state';
 import { Button } from '@/components/ui/button';

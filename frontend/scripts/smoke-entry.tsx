@@ -6,6 +6,11 @@ import { App } from '@/App';
 import { sessionHref } from '@/pages/session-list';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { Toaster } from '@/components/ui/toast';
+import { SAMPLE_ASSETS } from '@/mocks/assets';
+import { SAMPLE_CARDS } from '@/mocks/samples/cards';
+import { AssetCard } from '@/components/assets/asset-card';
+import { Lightbox } from '@/components/common/lightbox';
+import { assetsApi } from '@/api/client';
 
 /**
  * 冒烟测试入口（仅供 scripts/smoke.mjs 使用，不参与生产构建）。
@@ -38,6 +43,8 @@ export function mount(path: string): Root {
  * 把 SSE 事件链路与三态命中判定从页面里抽出来直接跑一遍，证明逻辑真的成立。
  */
 export { mockStream, mockStoryStream, mockWorldBookTest, SAMPLE_WORLDBOOKS } from '@/mocks/fixtures';
+export { SAMPLE_ASSETS } from '@/mocks/assets';
+export { SAMPLE_CARDS } from '@/mocks/samples/cards';
 
 /**
  * 会话列表的剧情集成探针（S13 回归守卫，S14 验收）。
@@ -548,6 +555,109 @@ export async function probeSceneImage(): Promise<{
     caption,
     srcOk,
     openedDialog,
+    closedByEsc,
+  };
+}
+
+/**
+ * 3.10) 素材库完整图预览（S16-FU）。
+ * -----------------------------------------------------------------------------
+ * 素材库缩略图是 `object-cover`（方格整齐，但**会裁切**），所以必须有一个
+ * 「看完整图」的入口。本探针断言这条链路真的通：
+ *   1. 至少渲染出一张素材卡片
+ *   2. 卡片上有 `查看 <文件名> 完整图片` 的无障碍入口（缩略图本体即可点击）
+ *   3. 点击后弹出 `role="dialog"` 灯箱，且灯箱里的 img **是 object-contain**
+ *      （这一步是关键：只有不裁切才算「看完整图」；若灯箱里也是 cover，功能形同虚设）
+ *   4. 灯箱 src 指向 `/assets/<id>/content`
+ *   5. Esc 能关掉
+ *
+ * 离线兜底（SAMPLE_ASSETS）没有真实图片字节，所以卡片在 offline 分支里**刻意不接线**
+ * 预览入口。要在 jsdom 里让素材库整页走到「查询成功」路径，得把 api client 的
+ * fetch 打通 —— 成本高且脆弱。本功能真正的接缝是 `AssetCard` + `Lightbox` 这对组合，
+ * 因此探针直接挂这一对（最小真实单元），而不是整页。
+ */
+export async function probeAssetPreview(): Promise<{
+  ok: boolean;
+  cardCount: number;
+  entryFound: boolean;
+  openedDialog: boolean;
+  contained: boolean;
+  srcOk: boolean;
+  closedByEsc: boolean;
+}> {
+  const container = document.getElementById('root');
+  if (!container) throw new Error('缺少 #root');
+  container.innerHTML = '';
+
+  const sample = SAMPLE_ASSETS[0];
+  const owner = SAMPLE_CARDS[0].data.name;
+  const previewSrc = assetsApi.contentUrl(sample.id);
+
+  const root = createRoot(container);
+  /** 预览灯箱的受控状态：模拟 `asset-gallery` 里的 `preview` state */
+  let preview: typeof sample | null = null;
+  const render = () => {
+    root.render(
+      <StrictMode>
+        <ul>
+          <AssetCard
+            asset={sample}
+            offline={false}
+            ownerName={owner}
+            onRemove={() => {}}
+            onPreview={(a) => {
+              preview = a;
+              render();
+            }}
+          />
+        </ul>
+        <Lightbox
+          open={preview !== null}
+          src={previewSrc}
+          caption={sample.filename}
+          onClose={() => {
+            preview = null;
+            render();
+          }}
+        />
+      </StrictMode>,
+    );
+  };
+  render();
+
+  await new Promise((r) => setTimeout(r, 200));
+
+  const cards = Array.from(container.querySelectorAll<HTMLElement>('li'));
+  // 入口：缩略图本体（`button[aria-label^="查看"]`）。卡片里还有「复制/删除/放大」按钮，
+  // 这里只认「查看…完整图片」的那一个，避免误点到复制。
+  const entry = container.querySelector<HTMLButtonElement>('button[aria-label^="查看 "]');
+  const entryFound = Boolean(entry);
+
+  entry?.dispatchEvent(
+    new window.PointerEvent('pointerdown', { bubbles: true, cancelable: true, button: 0 }),
+  );
+  entry?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+  await new Promise((r) => setTimeout(r, 300));
+
+  // Dialog 走 Portal 渲染到 document.body
+  const dialog = document.querySelector<HTMLElement>('[role="dialog"]');
+  const openedDialog = Boolean(dialog);
+  const dialogImg = dialog?.querySelector<HTMLImageElement>('img') ?? null;
+  const contained = Boolean(dialogImg?.className.includes('object-contain'));
+  const srcOk = Boolean(dialogImg?.getAttribute('src')?.includes('/assets/'));
+
+  const esc = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true });
+  (dialog ?? document).dispatchEvent(esc);
+  await new Promise((r) => setTimeout(r, 300));
+  const closedByEsc = !document.querySelector('[role="dialog"]');
+
+  return {
+    ok: cards.length >= 1 && entryFound && openedDialog && contained && srcOk && closedByEsc,
+    cardCount: cards.length,
+    entryFound,
+    openedDialog,
+    contained,
+    srcOk,
     closedByEsc,
   };
 }

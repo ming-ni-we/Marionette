@@ -1,7 +1,7 @@
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 
 /**
- * 剧情配图灯箱（S16 步骤 8）。
+ * 通用图片灯箱。
  * -----------------------------------------------------------------------------
  * 只是 `ui/dialog` 的一层薄封装 —— **刻意不自己实现弹层**。
  * Radix Dialog 已经处理好这些容易做漏的事，重写一遍只会引入新 bug：
@@ -12,6 +12,10 @@ import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
  *
  * 本组件的职责只有两件：**大图 + 图注**，以及把无障碍标题接上。
  * reduced-motion 由 `tokens.css` 的全局规则统一降速，这里不额外处理。
+ *
+ * 复用方：剧情配图（`story-runtime`）、素材库（`asset-gallery`）。
+ * 两处都需要「原图不被缩略图裁切」这一点，所以 `object-contain` 是硬要求，
+ * 不能用 `object-cover`。
  */
 interface LightboxProps {
   open: boolean;
@@ -34,7 +38,7 @@ export function Lightbox({ open, src, caption, onClose }: LightboxProps) {
           alt={caption}
           className="block max-h-[82vh] w-auto max-w-full rounded-lg border border-border-soft object-contain"
         />
-        <p className="mt-3 text-center text-xs text-meta">{caption}</p>
+        {caption ? <p className="mt-3 text-center text-xs text-meta">{caption}</p> : null}
       </DialogContent>
     </Dialog>
   );

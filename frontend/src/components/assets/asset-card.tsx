@@ -4,7 +4,7 @@ import type { Asset, AssetKind } from '@/api/types';
 import { toast } from '@/stores/ui';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Images, Sparkles, Trash2, Copy, UserRound } from '@/components/icons';
+import { Images, Sparkles, Trash2, Copy, UserRound, Maximize2 } from '@/components/icons';
 
 export const KIND_LABEL: Record<AssetKind, string> = {
   avatar: '头像',
@@ -19,13 +19,20 @@ export function AssetCard({
   offline,
   ownerName,
   onRemove,
+  onPreview,
 }: {
   asset: Asset;
   offline: boolean;
   ownerName: string;
   onRemove: (asset: Asset) => void;
+  /**
+   * 点击缩略图 / 放大按钮 → 打开灯箱看完整图（不裁切）。
+   * `offline`（演示数据）没有真实图片字节，不接线。
+   */
+  onPreview?: (asset: Asset) => void;
 }) {
   const dims = asset.meta as { width?: number; height?: number };
+  const previewable = Boolean(onPreview) && !offline;
   return (
     <li
       className={cn(
@@ -40,6 +47,22 @@ export function AssetCard({
               <span className="max-w-[90%] truncate px-2 font-mono text-xs">{asset.filename}</span>
             </span>
           </span>
+        ) : previewable ? (
+          // 缩略图用 `object-cover`（方格整齐），点开才给原图 —— 所以入口必须显式存在，
+          // 否则用户看到的是裁切版、也没有办法看到完整版。
+          <button
+            type="button"
+            onClick={() => onPreview?.(asset)}
+            aria-label={`查看 ${asset.filename} 完整图片`}
+            className="block size-full cursor-zoom-in focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent-ring"
+          >
+            <img
+              src={assetsApi.contentUrl(asset.id)}
+              alt={asset.filename}
+              loading="lazy"
+              className="size-full object-cover"
+            />
+          </button>
         ) : (
           <img
             src={assetsApi.contentUrl(asset.id)}
@@ -55,6 +78,17 @@ export function AssetCard({
           </Badge>
         </span>
         <div className="absolute inset-x-0 bottom-0 flex justify-end gap-1 bg-scrim p-1.5 opacity-0 transition-opacity duration-[var(--dur-fast)] group-hover/asset:opacity-100 focus-within:opacity-100">
+          {previewable ? (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label={`查看 ${asset.filename} 完整图片`}
+              className="text-fg"
+              onClick={() => onPreview?.(asset)}
+            >
+              <Maximize2 className="size-3.5" aria-hidden="true" />
+            </Button>
+          ) : null}
           <Button
             variant="ghost"
             size="icon-sm"
